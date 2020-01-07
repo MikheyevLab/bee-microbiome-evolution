@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE, cache = T)
 ```{r}
 library(tidyverse)
 library(sleuth)
+#library(topGO) #annoyingly ovrrides select
 library(readxl)
 library(kableExtra)
 ```
@@ -22,68 +23,77 @@ sample_id <- dir(file.path("data/kallisto"))
 metadata <- read_xlsx("data/RNA_seq_sample_metafile.xlsx") 
 t2g <- read_tsv("data/gene2isoform.txt.gz", col_names = c("gene_id", "target_id"))
 genesAnnotation <- read_tsv("data/genes.txt", col_names = c("beebase", "target_id", "description"), col_types = "ccc") %>% group_by(target_id) %>% mutate(description = gsub(" isoform X\\d+","", description, perl = T), description = description[1]) %>% unique() 
-go <- read_csv("data/clustered_go.csv") %>% left_join(genesAnnotation, by = c("gene" = "beebase")) 
+go <- read_tsv("data/go.tsv", col_names = c("gene_id", "go"))
+go <- split(go$go, go$gene_id) # convert to list for topGO
+
 ```
 
 # Model incorporating all factors at once
 
-### Tetracycline
-
-```{r}
-TetData <- metadata %>% filter(grepl("Tetracycline", treatment)) %>%  select(sample, stress = time_stress, history) %>% mutate(path = paste0("./data/kallisto/", sample))
-soTet <- sleuth_prep(TetData, extra_bootstrap_summary = T, target_mapping = t2g, aggregation_column = 'gene_id')
-plot_pca(soTet, color_by = 'stress') 
-soTet <- sleuth_fit(soTet, ~ stress + history, 'full')
-soTet <- sleuth_fit(soTet, ~ stress, 'history')
-soTet <- sleuth_lrt(soTet, 'history', 'full')
-TetResults <- sleuth_results(soTet, 'history:full', 'lrt', show_all = FALSE, pval_aggregate = T) %>% mutate(target_id = stringr::str_trim(target_id))
-TetSignificant <- dplyr::filter(TetResults, qval <= 0.05) 
-dim(TetSignificant)
-
-tetLogFC <- kallisto_table(soTet, use_filtered = FALSE, normalized = TRUE, include_covariates = TRUE) %>% left_join(t2g) %>% group_by(gene_id, sample) %>% summarize(tpm = sum(tpm), history = history[1]) %>%
-  group_by(gene_id, history) %>% summarize(tpm = mean(tpm) ) %>% 
-  mutate(log2ControlCoevolved = log2(lag(tpm)/tpm)) %>% na.omit() %>% left_join(t2g) %>% ungroup() %>% mutate(target_id = stringr::str_trim(gene_id)) %>% select(target_id, log2ControlCoevolved) %>% group_by(target_id) %>% filter(!is.infinite(log2ControlCoevolved)) %>% summarise(log2ControlCoevolved = mean(log2ControlCoevolved))
-
-left_join(TetSignificant, genesAnnotation) %>% left_join(tetLogFC) %>% select(target_id, qval, log2ControlCoevolved, description) %>%
-  kable() %>%
-  kable_styling() # treat the logFC with a huge grain of salt -- they are not reliable at the gene level
-#plot_bootstrap(soTet, "XM_006568835.3", units = "est_counts", color_by = "history")
+```{r dge}
+wald <- function(trt = "Tetracycline", contrast = "historystress_co_evolved") {
+  dat <-  metadata %>% dplyr::filter(grepl(trt, treatment)) %>%  dplyr::select(sample, stress = time_stress, history) %>% mutate(path = paste0("./data/kallisto/", sample))
+  so <- sleuth_prep(dat, extra_bootstrap_summary = T, target_mapping = t2g, aggregation_column = 'gene_id')
+  plot_pca(so, color_by = 'stress') 
+  so <- sleuth_fit(so, ~ stress + history, 'full')
+  so <- sleuth_wt(so, contrast)
+  results <- sleuth_results(so, test = contrast, pval_aggregate = F) %>% mutate(gene_id = stringr::str_trim(gene_id))
+  return(left_join(results, genesAnnotation, by = c("gene_id" = "target_id"))  %>% dplyr::select(gene_id, target_id, qval, b, description))
+}
 ```
 
-### Glyphosate
+Carry out the dge tests for each set of contrasts
 
 ```{r}
-glyphData <- metadata %>% filter(grepl("Glyphosate", treatment)) %>%  select(sample, stress = time_stress, history) %>% mutate(path = paste0("./data/kallisto/", sample))
-soGlyph <- sleuth_prep(glyphData, extra_bootstrap_summary = T, target_mapping = t2g, aggregation_column = 'gene_id')
-plot_pca(soGlyph, color_by = 'stress') 
-soGlyph <- sleuth_fit(soGlyph, ~ stress + history, 'full')
-soGlyph <- sleuth_fit(soGlyph, ~ stress, 'history')
-soGlyph <- sleuth_lrt(soGlyph, 'history', 'full')
-glyphResults <- sleuth_results(soGlyph, 'history:full', 'lrt', show_all = FALSE)
-glyphSignificant <- dplyr::filter(glyphResults, qval <= 0.05)
-dim(glyphSignificant)
-
+treatments <- c("Tetracycline", "Glyphosate", "Chlorothalonil")
+# two contrasts: evolutionary history
+# b is the effect size. 
+#   b>0 is upregulated in coevolved vs. naive
+#   b>0 is upregulated before stress vs. after stress
+contrasts <- c('historystress_co_evolved', 'stressbefore_stress') 
+dge <- list()
+for (trt in treatments) 
+  for (contrast in contrasts)
+    dge[[trt]][[contrast]] <- wald(trt, contrast)
 ```
 
-There is no differential gene expression in glyphosate
+```{r printDGE, results='asis'}
+for (trt in treatments) 
+  for (contrast in contrasts) {
+    print(dge[[trt]][[contrast]] %>% dplyr::filter(results, qval <= 0.05) %>%
+      kable(caption = paste0(trt, ": ", ifelse(contrast == 'historystress_co_evolved', "effect of co-evolution", "effect of stress"))) %>% 
+      kable_styling())
+  }
+```
 
-### Chlorothalonil
+```{r, echo = F}
+# write dge results for later GO term analaysi
+for (trt in treatments) 
+  for (contrast in contrasts) 
+    for (beta in c("up", "down"))
+      {
+      if (contrast == 'historystress_co_evolved') ctr = "coevolved"
+      if (contrast == 'stressbefore_stress') ctr = "pre-stress"
+      if (beta == "up") {
+        write.table(file = paste0("./results/", trt, "_", ctr, "_upregulated.txt"), dge[[trt]][[contrast]] %>% dplyr::filter( qval <= 0.05 & b > 0))
+      }
+    else {
+      write.table(file = paste0("./results/", trt, "_", contrast, "_downregulated.txt"), dge[[trt]][[contrast]] %>% dplyr::filter( qval <= 0.05 & b < 0))
+    }
+  }
+```
 
-```{r}
-chlorData <- metadata %>% filter(grepl("Chlorothalonil", treatment)) %>%  select(sample, stress = time_stress, history) %>% mutate(path = paste0("./data/kallisto/", sample))
-soChlor <- sleuth_prep(chlorData, extra_bootstrap_summary = T, target_mapping = t2g, aggregation_column = 'gene_id')
-plot_pca(soChlor, color_by = 'stress') 
-soChlor <- sleuth_fit(soChlor, ~ stress + history, 'full')
-soChlor <- sleuth_fit(soChlor, ~ stress, 'history')
-soChlor <- sleuth_lrt(soChlor, 'history', 'full')
-ChlorResults <- sleuth_results(soChlor, 'history:full', 'lrt', show_all = FALSE) %>% mutate(target_id = stringr::str_trim(target_id))
-ChlorSignificant <- dplyr::filter(ChlorResults, qval <= 0.05)
+```{r go, eval=FALSE, echo=FALSE}
+dgeObject <- dge[["Tetracycline"]][['historystress_co_evolved']]
 
-chlorLogFC <- kallisto_table(soChlor, use_filtered = FALSE, normalized = TRUE, include_covariates = TRUE) %>% left_join(t2g) %>% group_by(gene_id, sample) %>% summarize(tpm = sum(tpm), history = history[1]) %>%
-  group_by(gene_id, history) %>% summarize(tpm = mean(tpm) ) %>% 
-  mutate(log2ControlCoevolved = log2(lag(tpm)/tpm)) %>% na.omit() %>% left_join(t2g) %>% ungroup() %>% mutate(target_id = stringr::str_trim(gene_id)) %>% select(target_id, log2ControlCoevolved) %>% group_by(target_id) %>% filter(!is.infinite(log2ControlCoevolved)) %>% summarise(log2ControlCoevolved = mean(log2ControlCoevolved))
-
-left_join(ChlorSignificant, genesAnnotation) %>% left_join(chlorLogFC) %>% select(target_id, qval, log2ControlCoevolved, description) %>% 
-  kable() %>%
-  kable_styling() # treat the logFC with a huge grain of salt -- they are not reliable at the gene level
+allGenes <- unique(t2g$gene_id)[unique(t2g$gene_id) %in% names(go)]
+interestingGenes <- factor(as.integer(allGenes %in% dge[["Tetracycline"]][["stressbefore_stress"]]$gene_id))
+names(interestingGenes) <- allGenes
+GOdata <- new("topGOdata",
+                description="Simple session",ontology="BP",
+                allGenes=interestingGenes,
+                annot=annFUN.gene2GO, gene2GO=go)
+resultFisher <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+allRes <- GenTable(GOdata, classicFisher = resultFisher, orderBy = "classicKS", topNodes = 10)
+allRes
 ```
