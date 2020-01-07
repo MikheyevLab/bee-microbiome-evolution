@@ -60,7 +60,7 @@ for (trt in treatments)
 ```{r printDGE, results='asis'}
 for (trt in treatments) 
   for (contrast in contrasts) {
-    print(dge[[trt]][[contrast]] %>% dplyr::filter(results, qval <= 0.05) %>%
+    print(dge[[trt]][[contrast]] %>% dplyr::filter(qval <= 0.05) %>%
       kable(caption = paste0(trt, ": ", ifelse(contrast == 'historystress_co_evolved', "effect of co-evolution", "effect of stress"))) %>% 
       kable_styling())
   }

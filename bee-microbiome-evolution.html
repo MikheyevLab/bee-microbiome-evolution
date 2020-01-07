@@ -186,7 +186,7 @@ summary {
 
 <pre class="r"><code>library(tidyverse)
 library(sleuth)
-library(topGO) #annoyingly ovrrides select
+#library(topGO) #annoyingly ovrrides select
 library(readxl)
 library(kableExtra)</code></pre>
 <pre class="r"><code>sample_id &lt;- dir(file.path(&quot;data/kallisto&quot;))
@@ -214,8 +214,7 @@ go &lt;- read_tsv(&quot;data/go.tsv&quot;, col_names = c(&quot;gene_id&quot;, &q
   so &lt;- sleuth_fit(so, ~ stress + history, 'full')
   so &lt;- sleuth_wt(so, contrast)
   results &lt;- sleuth_results(so, test = contrast, pval_aggregate = F) %&gt;% mutate(gene_id = stringr::str_trim(gene_id))
-  significant &lt;- dplyr::filter(results, qval &lt;= 0.05)
-  return(left_join(significant, genesAnnotation, by = c(&quot;gene_id&quot; = &quot;target_id&quot;))  %&gt;% dplyr::select(gene_id, target_id, qval, b, description))
+  return(left_join(results, genesAnnotation, by = c(&quot;gene_id&quot; = &quot;target_id&quot;))  %&gt;% dplyr::select(gene_id, target_id, qval, b, description))
 }</code></pre>
 <p>Carry out the dge tests for each set of contrasts</p>
 <pre class="r"><code>treatments &lt;- c(&quot;Tetracycline&quot;, &quot;Glyphosate&quot;, &quot;Chlorothalonil&quot;)
@@ -332,7 +331,7 @@ for (trt in treatments)
 ## computing variance of betas</code></pre>
 <pre class="r"><code>for (trt in treatments) 
   for (contrast in contrasts) {
-    print(dge[[trt]][[contrast]] %&gt;% 
+    print(dge[[trt]][[contrast]] %&gt;% dplyr::filter(qval &lt;= 0.05) %&gt;%
       kable(caption = paste0(trt, &quot;: &quot;, ifelse(contrast == 'historystress_co_evolved', &quot;effect of co-evolution&quot;, &quot;effect of stress&quot;))) %&gt;% 
       kable_styling())
   }</code></pre>
@@ -10556,7 +10555,6 @@ thioredoxin%2C mitochondrial
 </tr>
 </tbody>
 </table>
-<p><code>r  GOdata &lt;- new(&quot;topGOdata&quot;,                 description=&quot;Simple session&quot;,ontology=&quot;BP&quot;,                 allGenes=d,geneSel=selectConn,                 annot=annFUN.gene2GO,gene2GO=go)</code></p>
 </div>
 
 
