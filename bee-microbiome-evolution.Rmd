@@ -6,20 +6,21 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, cache = T)
 ```
 
 ```{r}
 library(tidyverse)
 library(sleuth)
 library(readxl)
+library(kableExtra)
 ```
 
 ```{r}
 sample_id <- dir(file.path("data/kallisto"))
 metadata <- read_xlsx("data/RNA_seq_sample_metafile.xlsx") 
 t2g <- read_tsv("data/gene2isoform.txt.gz", col_names = c("gene_id", "target_id"))
-genesAnnotation <- read_tsv("data/genes.txt", col_names = c("beebase", "target_id", "description"), col_types = "ccc") %>% group_by(target_id) %>% mutate(description = gsub(" isoform X\\d+","", description, perl = T)) %>% unique() %>% ungroup()
+genesAnnotation <- read_tsv("data/genes.txt", col_names = c("beebase", "target_id", "description"), col_types = "ccc") %>% group_by(target_id) %>% mutate(description = gsub(" isoform X\\d+","", description, perl = T), description = description[1]) %>% unique()
 go <- read_csv("data/clustered_go.csv")
 ```
 
@@ -34,13 +35,18 @@ plot_pca(soTet, color_by = 'stress')
 soTet <- sleuth_fit(soTet, ~ stress + history, 'full')
 soTet <- sleuth_fit(soTet, ~ stress, 'history')
 soTet <- sleuth_lrt(soTet, 'history', 'full')
-TetResults <- sleuth_results(soTet, 'history:full', 'wt', show_all = FALSE, pval_aggregate = F) %>% mutate(target_id = stringr::str_trim(target_id))
+TetResults <- sleuth_results(soTet, 'history:full', 'lrt', show_all = FALSE, pval_aggregate = T) %>% mutate(target_id = stringr::str_trim(target_id))
 TetSignificant <- dplyr::filter(TetResults, qval <= 0.05) 
 dim(TetSignificant)
-left_join(TetSignificant, genesAnnotation) %>% select(target_id, qval, description)
 
+tetLogFC <- kallisto_table(soTet, use_filtered = FALSE, normalized = TRUE, include_covariates = TRUE) %>% left_join(t2g) %>% group_by(gene_id, sample) %>% summarize(tpm = sum(tpm), history = history[1]) %>%
+  group_by(gene_id, history) %>% summarize(tpm = mean(tpm) ) %>% 
+  mutate(log2ControlCoevolved = log2(lag(tpm)/tpm)) %>% na.omit() %>% left_join(t2g) %>% ungroup() %>% mutate(target_id = stringr::str_trim(gene_id)) %>% select(target_id, log2ControlCoevolved) %>% group_by(target_id) %>% filter(!is.infinite(log2ControlCoevolved)) %>% summarise(log2ControlCoevolved = mean(log2ControlCoevolved))
 
-
+left_join(TetSignificant, genesAnnotation) %>% left_join(tetLogFC) %>% select(target_id, qval, log2ControlCoevolved, description) %>%
+  kable() %>%
+  kable_styling() # treat the logFC with a huge grain of salt -- they are not reliable at the gene level
+#plot_bootstrap(soTet, "XM_006568835.3", units = "est_counts", color_by = "history")
 ```
 
 ### Glyphosate
@@ -55,8 +61,10 @@ soGlyph <- sleuth_lrt(soGlyph, 'history', 'full')
 glyphResults <- sleuth_results(soGlyph, 'history:full', 'lrt', show_all = FALSE)
 glyphSignificant <- dplyr::filter(glyphResults, qval <= 0.05)
 dim(glyphSignificant)
-head(glyphSignificant, 20)
+
 ```
+
+There is no differential gene expression in glyphosate
 
 ### Chlorothalonil
 
@@ -67,8 +75,14 @@ plot_pca(soChlor, color_by = 'stress')
 soChlor <- sleuth_fit(soChlor, ~ stress + history, 'full')
 soChlor <- sleuth_fit(soChlor, ~ stress, 'history')
 soChlor <- sleuth_lrt(soChlor, 'history', 'full')
-ChlorResults <- sleuth_results(soChlor, 'history:full', 'lrt', show_all = FALSE)
+ChlorResults <- sleuth_results(soChlor, 'history:full', 'lrt', show_all = FALSE) %>% mutate(target_id = stringr::str_trim(target_id))
 ChlorSignificant <- dplyr::filter(ChlorResults, qval <= 0.05)
-dim(ChlorSignificant)
-head(ChlorSignificant, 20)
+
+chlorLogFC <- kallisto_table(soChlor, use_filtered = FALSE, normalized = TRUE, include_covariates = TRUE) %>% left_join(t2g) %>% group_by(gene_id, sample) %>% summarize(tpm = sum(tpm), history = history[1]) %>%
+  group_by(gene_id, history) %>% summarize(tpm = mean(tpm) ) %>% 
+  mutate(log2ControlCoevolved = log2(lag(tpm)/tpm)) %>% na.omit() %>% left_join(t2g) %>% ungroup() %>% mutate(target_id = stringr::str_trim(gene_id)) %>% select(target_id, log2ControlCoevolved) %>% group_by(target_id) %>% filter(!is.infinite(log2ControlCoevolved)) %>% summarise(log2ControlCoevolved = mean(log2ControlCoevolved))
+
+left_join(ChlorSignificant, genesAnnotation) %>% left_join(chlorLogFC) %>% select(target_id, qval, log2ControlCoevolved, description) %>%
+  kable() %>%
+  kable_styling() # treat the logFC with a huge grain of salt -- they are not reliable at the gene level
 ```
