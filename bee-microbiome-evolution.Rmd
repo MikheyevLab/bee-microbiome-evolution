@@ -1,0 +1,224 @@
+---
+title: "Bee microbiome gene expression"
+author: "Sasha Mikheyev"
+date: "11/7/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(sleuth)
+library(readxl)
+```
+
+```{r}
+sample_id <- dir(file.path("data/kallisto"))
+metadata <- read_xlsx("data/RNA_seq_sample_metafile.xlsx") 
+t2g <- read_tsv("data/gene2isoform.txt.gz", col_names = c("gene_id", "target_id"))
+genesAnnotation <- read_tsv("data/genes.txt", col_names = c("beebase", "isoform_id", "description"))
+go <- read_csv("data/clustered_go.csv")
+```
+
+## Is there evidence of bee genes responding to stress as a factor of whether or not they have coevolved microbiomes?
+
+```{r}
+metadataHistory <- metadata %>% filter(time_stress == "before_stress") %>% select(sample, history) %>% mutate(path = paste0("./data/kallisto/", sample))
+
+soHistory <- sleuth_prep(metadataHistory, extra_bootstrap_summary = F, target_mapping = t2g, aggregation_column = 'gene_id')
+
+soHistory <- sleuth_fit(soHistory, ~history, 'full')
+soHistory <- sleuth_fit(soHistory, ~1, 'reduced')
+soHistory <- sleuth_lrt(soHistory, 'reduced', 'full')
+soHistoryTable <- sleuth_results(soHistory, 'reduced:full', 'lrt', show_all = FALSE)
+plot_pca(soHistory, color_by = 'history', text_labels = T)
+soHistorySignificant <- dplyr::filter(soHistoryTable, qval <= 0.05)
+head(soHistorySignificant,20)
+```
+
+No overall effect of evolved vs non-evolved micriobime before stress
+
+## Examining changes in co-evolved and non-coevolved bees uner stress
+
+### Tetracycline
+
+```{r}
+metadataStressTet <- metadata %>% filter(time_stress == "after_stress" & grepl("Tetracycline", treatment)) %>% select(sample, history) %>% mutate(path = paste0("./data/kallisto/", sample))
+
+soStressTet <- sleuth_prep(metadataStressTet, extra_bootstrap_summary = F, target_mapping = t2g, aggregation_column = 'gene_id')
+
+soStressTet <- sleuth_fit(soStressTet, ~history, 'full')
+soStressTet <- sleuth_fit(soStressTet, ~1, 'reduced')
+soStressTet <- sleuth_lrt(soStressTet, 'reduced', 'full')
+soStressTetTable <- sleuth_results(soStressTet, 'reduced:full', 'lrt', show_all = FALSE)
+plot_pca(soStressTet, color_by = 'history', text_labels = T)
+soStressTetSignificant <- dplyr::filter(soStressTetTable, qval <= 0.05)
+head(soStressTetSignificant,20)
+
+tet <- kallisto_table(soStressTet, use_filtered = FALSE, normalized = TRUE, include_covariates = TRUE)
+
+# log-fold TMP control/treatment
+tetTpm <-  tet %>% group_by(target_id, history )%>% summarize(tpm = mean(tpm) ) %>% mutate(tpm = log2(tpm/lag(tpm))) %>% na.omit() #control/treatment
+
+```
+
+### Chlorothalonil
+
+```{r}
+metadataStressChlor <- metadata %>% filter(time_stress == "after_stress" & grepl("Chlorothalonil", treatment)) %>% select(sample, history) %>% mutate(path = paste0("./data/kallisto/", sample))
+
+soStressChlor <- sleuth_prep(metadataStressChlor, extra_bootstrap_summary = T, target_mapping = t2g, aggregation_column = 'gene_id')
+
+soStressChlor <- sleuth_fit(soStressChlor, ~history, 'full')
+soStressChlor <- sleuth_fit(soStressChlor, ~1, 'reduced')
+soStressChlor <- sleuth_lrt(soStressChlor, 'reduced', 'full')
+soStressChlorTable <- sleuth_results(soStressChlor, 'reduced:full', 'lrt', show_all = FALSE)
+plot_pca(soStressChlor, color_by = 'history', text_labels = T)
+soStressChlorSignificant <- dplyr::filter(soStressChlorTable, qval <= 0.05)
+head(soStressChlorSignificant,20)
+
+plot_bootstrap(soStressChlor, "XM_623943.6", units = "est_counts", color_by = "history")
+
+chlor <- kallisto_table(soStressChlor, use_filtered = FALSE, normalized = TRUE, include_covariates = TRUE)
+
+# log-fold TMP control/treatment
+chlorTpm <-  chlor %>% group_by(target_id, history )%>% summarize(tpm = mean(tpm) ) %>% mutate(tpm = log2(tpm/lag(tpm))) %>% na.omit() #control/treatment
+chlor %>% filter(target_id == "NM_001011627.1") # phenoloxidase
+chlor %>% filter(target_id == "XM_026442086.1") # phenoloxidase activating factor
+
+```
+protein Malvolio is upregulated in coevolved bees
+
+
+### Glyphosate
+We can't do stats, since we don't have sufficient replication, but we can look at log-fold changes
+```{r}
+metadataStressGlyph <- metadata %>% filter(time_stress == "after_stress" & grepl("Glyphosate", treatment)) %>% select(sample, history) %>% mutate(path = paste0("./data/kallisto/", sample))
+
+soStressGlyph <- sleuth_prep(metadataStressGlyph, extra_bootstrap_summary = F, target_mapping = t2g)
+
+glyph <- kallisto_table(soStressGlyph, use_filtered = FALSE, normalized = TRUE, include_covariates = TRUE)
+
+# log-fold TMP control/treatment
+glyphTpm <-  glyph %>% group_by(target_id, history )%>% summarize(tpm = mean(tpm) ) %>% mutate(tpm = log2(tpm/lag(tpm))) %>% na.omit() #control/treatment
+glyphTpm %>% ggplot(aes(tpm)) + geom_histogram()
+glyphTpm %>% filter(!is.infinite(tpm) & abs(tpm)>30)
+
+glyph %>% filter(target_id == "NM_001011627.1") # phenoloxidase
+glyph %>% filter(target_id == "XM_026442086.1") # phenoloxidase activating factor
+
+```
+
+## Before and after stress
+
+### Tetracycline
+
+```{r}
+metadataStressTimeTet <- metadata %>% filter(history != "control" & grepl("Tetracycline", treatment)) %>% select(sample, time_stress) %>% mutate(path = paste0("./data/kallisto/", sample))
+
+soStressTimeTet <- sleuth_prep(metadataStressTimeTet, extra_bootstrap_summary = T, target_mapping = t2g)
+
+soStressTimeTet <- sleuth_fit(soStressTimeTet, ~time_stress, 'full')
+soStressTimeTet <- sleuth_fit(soStressTimeTet, ~1, 'reduced')
+soStressTimeTet <- sleuth_lrt(soStressTimeTet, 'reduced', 'full')
+soStressTimeTetTable <- sleuth_results(soStressTimeTet, 'reduced:full', 'lrt', show_all = FALSE)
+plot_pca(soStressTimeTet, color_by = 'time_stress', text_labels = T)
+soStressTimeTetSignificant <- dplyr::filter(soStressTimeTetTable, qval <= 0.05)
+head(soStressTimeTetSignificant,20)
+
+# log-fold TMP control/treatment
+tetTime <- kallisto_table(soStressTimeTet, use_filtered = FALSE, normalized = TRUE, include_covariates = TRUE)
+tetTimeTpm <-  tetTime %>% group_by(target_id, time_stress )%>% summarize(tpm = mean(tpm) ) %>% mutate(tpm = log2(lag(tpm)/tpm)) %>% na.omit() #before/after stress
+
+with(tetTimeTpm %>% left_join(tetTpm, by = c("target_id")), cor.test(tpm.x, tpm.y, method= "s"))
+
+```
+### Chlorothalonil
+
+```{r}
+metadataStressTimeChlor <- metadata %>% filter(history != "control" & grepl("Chlorothalonil", treatment)) %>% select(sample, time_stress) %>% mutate(path = paste0("./data/kallisto/", sample))
+
+soStressTimeChlor <- sleuth_prep(metadataStressTimeChlor, extra_bootstrap_summary = T, target_mapping = t2g)
+
+soStressTimeChlor <- sleuth_fit(soStressTimeChlor, ~time_stress, 'full')
+soStressTimeChlor <- sleuth_fit(soStressTimeChlor, ~1, 'reduced')
+soStressTimeChlor <- sleuth_lrt(soStressTimeChlor, 'reduced', 'full')
+soStressTimeChlorTable <- sleuth_results(soStressTimeChlor, 'reduced:full', 'lrt', show_all = FALSE)
+plot_pca(soStressTimeChlor, color_by = 'time_stress', text_labels = T)
+soStressTimeChlorSignificant <- dplyr::filter(soStressTimeChlorTable, qval <= 0.05)
+head(soStressTimeChlorSignificant,20)
+
+
+chlorTime <- kallisto_table(soStressTimeChlor, use_filtered = FALSE, normalized = TRUE, include_covariates = TRUE)
+
+# log-fold TMP control/treatment
+chlorTimeTpm <-  chlorTime %>% group_by(target_id, time_stress )%>% summarize(tpm = mean(tpm) ) %>% mutate(tpm = log2(lag(tpm)/tpm)) %>% na.omit() #before/after stress
+
+with(chlorTimeTpm %>% left_join(chlorTpm, by = c("target_id")), cor.test(tpm.x, tpm.y, method= "s"))
+```
+### Glyphosate
+
+```{r}
+metadataStressTimeGlyph <- metadata %>% filter(history != "control" & grepl("Glyphosate", treatment)) %>% select(sample, time_stress) %>% mutate(path = paste0("./data/kallisto/", sample))
+
+soStressTimeGlyph <- sleuth_prep(metadataStressTimeGlyph, extra_bootstrap_summary = T, target_mapping = t2g)
+
+
+# log-fold TMP control/treatment
+glyphTime <- kallisto_table(soStressTimeGlyph, use_filtered = FALSE, normalized = TRUE, include_covariates = TRUE)
+glyphTimeTpm <- glyphTime %>% group_by(target_id, time_stress )%>% summarize(tpm = mean(tpm) ) %>% mutate(tpm = log2(lag(tpm)/tpm)) %>% na.omit() #before/after stress
+
+with(glyphTimeTpm %>% left_join(glyphTpm, by = c("target_id")), cor.test(tpm.x, tpm.y, method= "s"))
+
+```
+Note, the changes before vs after are highly similar to treatment vs. control
+
+# Model incorporating all factors at once
+
+### Tetracycline
+
+```{r}
+TetData <- metadata %>% filter(grepl("Tetracycline", treatment)) %>%  select(sample, stress = time_stress, history) %>% mutate(path = paste0("./data/kallisto/", sample))
+soTet <- sleuth_prep(TetData, extra_bootstrap_summary = T, target_mapping = t2g, aggregation_column = 'gene_id')
+plot_pca(soTet, color_by = 'stress') 
+soTet <- sleuth_fit(soTet, ~ stress + history, 'full')
+soTet <- sleuth_fit(soTet, ~ stress, 'history')
+soTet <- sleuth_lrt(soTet, 'history', 'full')
+TetResults <- sleuth_results(soTet, 'history:full', 'lrt', show_all = FALSE)
+TetSignificant <- dplyr::filter(TetResults, qval <= 0.05)
+dim(TetSignificant)
+TetSignificant %>% left_join()
+```
+
+### Glyphosate
+
+```{r}
+glyphData <- metadata %>% filter(grepl("Glyphosate", treatment)) %>%  select(sample, stress = time_stress, history) %>% mutate(path = paste0("./data/kallisto/", sample))
+soGlyph <- sleuth_prep(glyphData, extra_bootstrap_summary = T, target_mapping = t2g, aggregation_column = 'gene_id')
+plot_pca(soGlyph, color_by = 'stress') 
+soGlyph <- sleuth_fit(soGlyph, ~ stress + history, 'full')
+soGlyph <- sleuth_fit(soGlyph, ~ stress, 'history')
+soGlyph <- sleuth_lrt(soGlyph, 'history', 'full')
+glyphResults <- sleuth_results(soGlyph, 'history:full', 'lrt', show_all = FALSE)
+glyphSignificant <- dplyr::filter(glyphResults, qval <= 0.05)
+dim(glyphSignificant)
+head(glyphSignificant, 20)
+```
+
+### Chlorothalonil
+
+```{r}
+chlorData <- metadata %>% filter(grepl("Chlorothalonil", treatment)) %>%  select(sample, stress = time_stress, history) %>% mutate(path = paste0("./data/kallisto/", sample))
+soChlor <- sleuth_prep(chlorData, extra_bootstrap_summary = T, target_mapping = t2g, aggregation_column = 'gene_id')
+plot_pca(soChlor, color_by = 'stress') 
+soChlor <- sleuth_fit(soChlor, ~ stress + history, 'full')
+soChlor <- sleuth_fit(soChlor, ~ stress, 'history')
+soChlor <- sleuth_lrt(soChlor, 'history', 'full')
+ChlorResults <- sleuth_results(soChlor, 'history:full', 'lrt', show_all = FALSE)
+ChlorSignificant <- dplyr::filter(ChlorResults, qval <= 0.05)
+dim(ChlorSignificant)
+head(ChlorSignificant, 20)
+```
