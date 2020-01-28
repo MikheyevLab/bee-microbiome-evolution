@@ -23,8 +23,11 @@ sample_id <- dir(file.path("data/kallisto"))
 metadata <- read_xlsx("data/RNA_seq_sample_metafile.xlsx") 
 t2g <- read_tsv("data/gene2isoform.txt.gz", col_names = c("gene_id", "target_id"))
 genesAnnotation <- read_tsv("data/genes.txt", col_names = c("beebase", "target_id", "description"), col_types = "ccc") %>% group_by(target_id) %>% mutate(description = gsub(" isoform X\\d+","", description, perl = T), description = description[1]) %>% unique() 
-go <- read_tsv("data/go.tsv", col_names = c("gene_id", "go"))
-go <- split(go$go, go$gene_id) # convert to list for topGO
+#go <- read_tsv("data/go.tsv", col_names = c("gene_id", "go"))
+#go <- split(go$go, go$gene_id) # convert to list for topGO
+
+stressGenes <- rbind(read_xlsx("data/doublet.xlsx") %>% mutate(gene_id = as.character(NCBI_ID)) %>% dplyr::select(gene_id, pvalue), 
+  read_xlsx("data/gene stress list for RNA studies.xlsx", range = "B3:B39", col_names = "gene_id", col_types = "text") %>% mutate(pvalue = NA)) %>% group_by(gene_id)
 
 ```
 
@@ -38,7 +41,7 @@ wald <- function(trt = "Tetracycline", contrast = "historystress_co_evolved") {
   so <- sleuth_fit(so, ~ stress + history, 'full')
   so <- sleuth_wt(so, contrast)
   results <- sleuth_results(so, test = contrast, pval_aggregate = F) %>% mutate(gene_id = stringr::str_trim(gene_id))
-  return(left_join(results, genesAnnotation, by = c("gene_id" = "target_id"))  %>% dplyr::select(gene_id, target_id, qval, b, description))
+  return(left_join(results, genesAnnotation, by = c("gene_id" = "target_id"))  %>% dplyr::select(gene_id, target_id, pval, qval, b, description))
 }
 ```
 
@@ -66,6 +69,15 @@ for (trt in treatments)
   }
 ```
 
+```{r saveDGE, echo=F}
+for (trt in treatments) 
+  for (contrast in contrasts) {
+    title <- paste0("data/dge/",trt, " ", ifelse(contrast == 'historystress_co_evolved', "effect of co-evolution", "effect of stress"), ".txt")
+    write.table(file = title, dge[[trt]][[contrast]], row.names = F)
+  }
+```
+
+
 ```{r, echo = F}
 # write dge results for later GO term analaysi
 for (trt in treatments) 
@@ -83,6 +95,25 @@ for (trt in treatments)
   }
 ```
 
+
+## What happens to immune genes in the course of adaptation?
+```{r doublet}
+(immuneGenes <- rbind(
+  stressGenes %>% left_join(dge[["Tetracycline"]][["historystress_co_evolved"]], by =  "gene_id" ) %>% mutate(treatment = "Tetracycline"),
+  stressGenes %>% left_join(dge[["Glyphosate"]][["historystress_co_evolved"]], by =  "gene_id" ) %>% mutate(treatment = "Glyphosate"),
+  stressGenes %>% left_join(dge[["Chlorothalonil"]][["historystress_co_evolved"]], by =  "gene_id" ) %>% mutate(treatment = "Chlorothalonil")
+) )%>% ggplot(aes(b, color=treatment)) + geom_density() + theme_minimal() + geom_vline(xintercept = 0)
+
+immuneGenes %>% ggplot(aes(treatment, b))  + geom_violin() + theme_minimal() + geom_hline(yintercept= 0, color = "red") + stat_summary(fun.y = mean, geom = "point") 
+
+TetVsChlor <- dge[["Tetracycline"]][["historystress_co_evolved"]] %>% select(gene_id, target_id, b, qval) %>% inner_join(stressGenes, by =  "gene_id" ) %>%  inner_join(dge[["Chlorothalonil"]][["historystress_co_evolved"]], by =  "target_id" ) 
+with(TetVsChlor, cor.test(b.x, b.y, method = "s"))
+TetVsChlor %>% ggplot(aes(b.x, b.y)) + geom_hex()
+
+View(TetVsChlor %>% dplyr::filter(b.x < -3 & b.y > 3))
+
+```
+
 ```{r go, eval=FALSE, echo=FALSE}
 dgeObject <- dge[["Tetracycline"]][['historystress_co_evolved']]
 
@@ -97,3 +128,34 @@ resultFisher <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
 allRes <- GenTable(GOdata, classicFisher = resultFisher, orderBy = "classicKS", topNodes = 10)
 allRes
 ```
+
+
+### Verifying with pre-treatment samples only
+
+We're going to remove post-stress samples to see if we have a similar pattern to the whole model.
+
+```{r}
+wald2 <- function(trt = "Tetracycline") {
+  dat <-  metadata %>% dplyr::filter(grepl(trt, treatment) & time_stress == "before_stress") %>%  dplyr::select(sample, history) %>% mutate(path = paste0("./data/kallisto/", sample))
+  so <- sleuth_prep(dat, extra_bootstrap_summary = T, target_mapping = t2g, aggregation_column = 'gene_id')
+  so <- sleuth_fit(so, ~ history , 'full')
+  so <- sleuth_wt(so, 'historystress_co_evolved')
+  results <- sleuth_results(so, test = "historystress_co_evolved", pval_aggregate = F) %>% mutate(gene_id = stringr::str_trim(gene_id))
+  return(left_join(results, genesAnnotation, by = c("gene_id" = "target_id"))  %>% dplyr::select(gene_id, target_id, qval, b, description))
+}
+```
+
+```{r}
+dge2 <- list()
+for (trt in c("Tetracycline", "Glyphosate")) 
+    dge2[[trt]] <- wald2(trt)
+
+(immuneGenes2 <- rbind(
+  stressGenes %>% left_join(dge2[["Tetracycline"]], by =  "gene_id" ) %>% mutate(treatment = "Tetracycline"),
+  stressGenes %>% left_join(dge2[["Glyphosate"]], by =  "gene_id" ) %>% mutate(treatment = "Glyphosate")
+) )%>% ggplot(aes(b, color=treatment)) + geom_density() + theme_minimal() + geom_vline(xintercept = 0)
+
+immuneGenes2 %>% ggplot(aes(treatment, b))  + geom_violin() + theme_minimal() + geom_hline(yintercept= 0, color = "red") + stat_summary(fun.y = mean, geom = "point") 
+```
+
+Seems that the overall test partitions the variance pretty well and we get the same pattern with pre-stress treatmentsm, too.
