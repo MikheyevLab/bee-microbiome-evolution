@@ -1,1 +1,1 @@
-"gene_id" "target_id" "qval" "b" "description"
+"gene_id" "target_id" "pval" "qval" "b" "description"

@@ -95,6 +95,35 @@ for (trt in treatments)
   }
 ```
 
+## Comparing co-evolved vs control bees before stress
+
+```{r dge_treatment}
+# one contrast: evolutionary history
+# b is the effect size. 
+#   b>0 is upregulated in coevolved vs. naive
+
+waldCoevolved <- function(trt = "Tetracycline") {
+  dat <-  metadata %>% dplyr::filter((treatment == trt | history == "control") & time_stress == "before_stress") %>%  dplyr::select(sample, history) %>% mutate(path = paste0("./data/kallisto/", sample))
+  so <- sleuth_prep(dat, extra_bootstrap_summary = T, target_mapping = t2g, aggregation_column = 'gene_id')
+  so <- sleuth_fit(so, ~ history, 'full')
+  so <- sleuth_wt(so, "historystress_co_evolved")
+  results <- sleuth_results(so, test = "historystress_co_evolved", pval_aggregate = F) %>% mutate(gene_id = stringr::str_trim(gene_id))
+  return(left_join(results, genesAnnotation, by = c("gene_id" = "target_id"))  %>% dplyr::select(gene_id, target_id, pval, qval, b, description))
+}
+```
+
+
+```{r dgeCoevolved, results='asis'}
+dgeCoevolution <- list()
+for (trt in treatments) {
+  dgeCoevolution[[trt]] <- waldCoevolved(trt)
+  print(dgeCoevolution[[trt]] %>% dplyr::filter(qval <= 0.05) %>% kable(caption = paste("Bee genes upregulated as a result of ", trt, "coevolution")) %>% 
+      kable_styling())
+  title <- paste0("data/dge/",trt, " exposure.txt")
+  write.table(file = title, dgeCoevolution[[trt]], row.names = F)
+}
+```
+
 
 ## What happens to immune genes in the course of adaptation?
 ```{r doublet}
@@ -106,11 +135,9 @@ for (trt in treatments)
 
 immuneGenes %>% ggplot(aes(treatment, b))  + geom_violin() + theme_minimal() + geom_hline(yintercept= 0, color = "red") + stat_summary(fun.y = mean, geom = "point") 
 
-TetVsChlor <- dge[["Tetracycline"]][["historystress_co_evolved"]] %>% select(gene_id, target_id, b, qval) %>% inner_join(stressGenes, by =  "gene_id" ) %>%  inner_join(dge[["Chlorothalonil"]][["historystress_co_evolved"]], by =  "target_id" ) 
+TetVsChlor <- dge[["Tetracycline"]][["historystress_co_evolved"]] %>% dplyr::select(gene_id, target_id, b, qval) %>% inner_join(stressGenes, by =  "gene_id" ) %>%  inner_join(dge[["Chlorothalonil"]][["historystress_co_evolved"]], by =  "target_id" ) 
 with(TetVsChlor, cor.test(b.x, b.y, method = "s"))
 TetVsChlor %>% ggplot(aes(b.x, b.y)) + geom_hex()
-
-View(TetVsChlor %>% dplyr::filter(b.x < -3 & b.y > 3))
 
 ```
 
