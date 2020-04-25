@@ -1,0 +1,67 @@
+---
+title: "R_microbiome_analysis_final"
+author: "Vienna"
+date: "4/25/2020"
+output:
+  pdf_document: default
+  html_document: default
+self_contained: no
+thumbnails: no
+keep_md: yes
+---
+
+```{r init, echo = FALSE, include = FALSE}
+library(RSQLite)
+library(DECIPHER)
+library(DESeq2)
+library(gridExtra)
+library(ggnewscale) ##new_scale()
+library(ggpubr) # ggarrange()
+library(ggthemes)
+library(grid) # rasterGrob()
+library(vegan)
+library(phyloseq)
+library(png)
+library(qgraph) # graph layout
+library(ggsignif)
+library(btools)
+library(RColorBrewer)
+library(tidyverse) # includes: ggplot2, dplyr, tidyr, readr, purr, tibble, stringr, forcats
+
+set.seed(42)
+rm(list = ls())
+graphics.off()
+system("mkdir -p figures data_export")
+system("rm -f figures/* data_export/*")
+
+# Plotting options
+plot_res = 300 # DPI of PNG graphs
+col_cembio <- c(rgb(181, 6, 155, 255, max = 255), rgb(64, 118, 253, 255, max = 255))
+col_c12 <- brewer.pal(12, "Set3")
+theme_set(theme_bw())
+
+# Analysis switches
+do_tech_analysis <- TRUE
+```
+
+
+## Summary
+The experiment aimed to study the response of honey bee microbiome to three chemicals across host generations and to detect potential microbiome mediated effects on host phenotypes. 
+## Methods
+We reared adult bees under controlled lab conditions and inoculated them with a natural bee microbiome (start_pool). Bees were orally stressed with either Tetracycline, Glyphosate, Chloropthalonil or no stressor (control). Three cages per treatment were used. Both, the stress-exposed and control microbiomes were transferred to the next cycle (cage to cage transfer) which was handled as before. The third cycle aims to study effects of the pre-exposed microbiome on phenotypes of naive bee hosts in comparison to control microbiomes. For that we transferred the microbiomes and let them be established in the bee hosts without any stress factor contact. Then we applied high amounts of chemicals to bees with a control microbiome or a pre-exposed microbiome and counted survival.
+
+### Data and metadata
+
+Overview over all experimental variables:
+
+**Experimental variables find in metadata file**:  
+
+*sample_type* <- microbiome_transfer or single bee
+*treatment* <- treatment used (control or which toxin) and additional information if microbiome transfer (e.g. Control_transfer), single bee (e.g. Control)
+*treatment2* <- only treatment, not indicating sample type
+*cage* <- cage number (three cages per treatment have been used)
+*treatment_cage* <- combined information of treatment and cage number (e.g. Control_2)
+*date* <- date of sampling during experiment
+*cycle* <- experimental cycle (cycle 1, cycle 2, cycle 3 before stress, cycle 3 after stress)
+*treatment_cycle* <- experimental cycle in combination with treatment information
+*treatment_cycle2*<- experimental cycle in combination with treatment  plus sample type information
