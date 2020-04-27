@@ -1,0 +1,95 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r setup}
+library(tidyverse)
+library(brms)
+library(tidybayes)
+library(cowplot)
+dat <- read_tsv("data/functional_test_all_log_reg2.txt") %>% mutate(cage2 = paste(treatment, cage), group = factor(group, levels = c("control", "co-evolved")))
+controlDatChlor <- read_tsv("data/control_exp_functional_test_added_Chlorothalonil_2020.txt") %>% mutate(group = factor(group, levels = c("control", "added_Chlorothalonil")))
+controlDatFiltered <- read_tsv("data/control_exp_functional_test_filtered_microbiome_2020.txt") %>% mutate(group = factor(group, levels = c("filtered_control", "filtered_Chlorothalonil", "microbiome_free")))
+```
+
+# Tetracycline
+
+```{r}
+table(dat %>% filter(treatment == "Tetracycline") %>% dplyr::select(alive, treatment, group))
+
+summary(glm(alive ~ group, data = filter(dat, treatment == "Tetracycline")))
+```
+
+Ignoring any cage effects, there's clearly greater survival in the control bees. We now incorporate cage effects as random effects.
+
+```{r cache=T}
+tet <- brm(alive ~ group + (1|cage), data = filter(dat, treatment == "Tetracycline"), family= bernoulli(), control = list(adapt_delta = .9999), iter = 5000, cores = 4)
+plot(tet)
+summary(tet)
+```
+
+# Chlorothalonil
+
+```{r cache=T}
+summary(glm(alive ~ group, data = filter(dat, treatment == "Chlorothalonil")))
+chlor <- brm(alive ~ group + (1|cage), data = filter(dat, treatment == "Chlorothalonil"), family= bernoulli(), control = list(adapt_delta = .9999), iter = 5000, cores = 4)
+plot(chlor)
+summary(chlor)
+```
+
+# Glyphosate
+
+```{r cache=T}
+summary(glm(alive ~ group, data = filter(dat, treatment == "Glyphosate")))
+glyph <- brm(alive ~ group + (1|cage), data = filter(dat, treatment == "Glyphosate"), family= bernoulli(), control = list(adapt_delta = .9999), iter = 5000, cores = 4)
+plot(glyph)
+summary(glyph)
+```
+
+
+# Chlorothionil added control
+
+```{r cache=T}
+summary(glm(alive ~ group, data = controlDatChlor))
+chlorContr <- brm(alive ~ group + (1|cage), data = controlDatChlor, family= bernoulli(), control = list(adapt_delta = .9999), iter = 5000, cores = 4)
+plot(chlorContr)
+summary(chlorContr)
+```
+
+# Filtered microbiome added control
+
+```{r cache=T}
+summary(glm(alive ~ group, data = controlDatFiltered))
+chlorContrFiltered <- brm(alive ~ group + (1|cage), data = controlDatFiltered, family= bernoulli(), control = list(adapt_delta = .99), iter = 10000, cores = 4)
+plot(chlorContrFiltered)
+summary(chlorContrFiltered)
+```
+
+# Plot results
+
+## Main experiment
+```{r}
+get_variables(tet)
+
+statSum <- rbind(median_qi(tet %>% spread_draws(b_groupcoMevolved)),
+median_qi(chlor %>% spread_draws(b_groupcoMevolved)),
+median_qi(glyph %>% spread_draws(b_groupcoMevolved)))
+statSum$Treatment <- c("Tetracycline", "Chlorothalonil", "Glyphosate")
+
+p1 <- ggplot(statSum, aes(x = Treatment, y = b_groupcoMevolved, ymin = .lower, ymax = .upper)) + geom_errorbar(width = .1) + geom_point() + geom_hline(yintercept = 0, color = "red") + theme_minimal() + ylab("Bee survival") +theme(axis.title.x = element_blank()) + ggtitle("Past chemical exposure") + ylim(c(-7,2.5))
+```
+
+## Chlorothalonil follow-up
+
+```{r}
+get_variables(chlorContr)
+get_variables(chlorContrFiltered)
+contr <- median_qi(chlorContr %>% spread_draws(b_groupadded_Chlorothalonil))
+filtered <- median_qi(chlorContrFiltered %>% spread_draws(b_groupfiltered_Chlorothalonil))
+p2 <- data.frame(treatment = c("+ Chlorothalonil", "+ gut filtrate"), estimate = c(as.numeric(contr[1]), as.numeric(filtered[1])), ymin = c(contr$.lower, filtered$.lower), ymax = c(contr$.upper, filtered$.upper)) %>% 
+  ggplot(aes(x = treatment, y = estimate, ymin = ymin, ymax = ymax)) + geom_errorbar(width = .1) + geom_point() + geom_hline(yintercept = 0, color = "red") + theme_minimal() + theme(axis.title = element_blank()) + ggtitle("Chemical addition") + ylim(c(-7,2.5))
+                   
+plot_grid(p1, p2, nrow = 1, rel_widths = c(3,2), labels = c("A", "B"))
+ggsave("plots/brms.pdf", width = 6, height = 3)
+```
