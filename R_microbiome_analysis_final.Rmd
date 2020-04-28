@@ -1,0 +1,241 @@
+---
+title: "R_microbiome_analysis_final"
+author: "Vienna"
+date: "4/25/2020"
+output: 
+  html_document: default
+  keep_md: true
+  pdf_document: default
+self_contained: no
+thumbnails: no
+keep_md: yes
+---
+
+```{r setup, include = FALSE}
+library(RSQLite)
+library(DECIPHER)
+library(DESeq2)
+library(gridExtra)
+library(ggnewscale) ##new_scale()
+library(ggpubr) # ggarrange()
+library(ggthemes)
+library(grid) # rasterGrob()
+library(vegan)
+library(phyloseq)
+library(png)
+library(qgraph) # graph layout
+library(ggsignif)
+library(btools)
+library(RColorBrewer)
+library(tidyverse) # includes: ggplot2, dplyr, tidyr, readr, purr, tibble, stringr, forcats
+library(knitr)
+
+dd <- getwd()
+knitr::opts_chunk$set(warning=FALSE, cache=FALSE, fig.path=paste0(dd,'/R_microbiome_figures'))
+
+set.seed(42)
+rm(list = ls())
+#graphics.off()
+#system("mkdir -p figures data_export")
+#system("rm -f figures/* data_export/*")
+
+# Plotting options
+plot_res = 300 # DPI of PNG graphs
+col_cembio <- c(rgb(181, 6, 155, 255, max = 255), rgb(64, 118, 253, 255, max = 255))
+col_c12 <- brewer.pal(12, "Set3")
+theme_set(theme_bw())
+
+# Analysis switches
+do_tech_analysis <- TRUE
+```
+
+
+## Summary
+The experiment aimed to study the response of honey bee microbiome to three chemicals across host generations and to detect potential microbiome mediated effects on host phenotypes. 
+## Methods
+We reared adult bees under controlled lab conditions and inoculated them with a natural bee microbiome (start_pool). Bees were orally stressed with either Tetracycline, Glyphosate, Chloropthalonil or no stressor (control). Three cages per treatment were used. Both, the stress-exposed and control microbiomes were transferred to the next cycle (cage to cage transfer) which was handled as before. The third cycle aims to study effects of the pre-exposed microbiome on phenotypes of naive bee hosts in comparison to control microbiomes. For that we transferred the microbiomes and let them be established in the bee hosts without any stress factor contact. We finally applied high amounts of chemicals to bees with a control microbiome or a pre-exposed microbiome. Bee samples for 16S sequencing has been snap-frozen after cycle 1, cycle 2, cycle 3 BEFORE high stress and cycle 3 AFTER high stress. In addition, the macerated gut pools for transferring microbiome has been saved (start_microbiome as well as pool from each cage to cage transfer). We sequenced the V3-V4 region of the 16S region. Two DNA mock samples from ZymoResearch have been sequenced and named as "positive_control".
+
+### Data and metadata
+
+Overview over all experimental variables:
+
+**Experimental variables find in metadata file**:  
+
+*sample_type* <- microbiome_transfer or single bee
+*treatment* <- treatment used (control or which toxin) and additional information if microbiome transfer (e.g. Control_transfer), single bee (e.g. Control)
+*treatment2* <- only treatment, not indicating sample type
+*cage* <- cage number (three cages per treatment have been used)
+*treatment_cage* <- combined information of treatment and cage number (e.g. Control_2)
+*date* <- date of sampling during experiment
+*cycle* <- experimental cycle (cycle 1, cycle 2, cycle 3 before stress, cycle 3 after stress)
+*treatment_cycle* <- experimental cycle in combination with treatment information
+*treatment_cycle2*<- experimental cycle in combination with treatment  plus sample type information
+
+
+```{r load}
+#setwd("C:/Users/Yoann/Desktop/Vienna/Experiments/Australia/Microbiome_evolution/Manuscript/R/github/bee-microbiome-evolution/R_microbiome_analysis")
+
+
+#Svtab <- read.delim("feature_table.txt")
+#replace . in colnames with - to match metadata.txt
+#colnames(Svtab)  <- gsub("\\.", "-", colnames(Svtab))
+#row.names(Svtab)<-Svtab[[1]] #make OTU ID the row names
+
+#write.table(Svtab, file="Svtab", sep='\t',col.names=TRUE, row.names=FALSE)
+#open in excel, check and save as Svtab1.csv
+
+#taxonomy<- read.delim("biom-taxonomy.tsv")
+#names(taxonomy) <- c("X-OTU-ID", "tax", "Confidence")
+#row.names(taxonomy) <-taxonomy[[1]]
+#taxonomy <- taxonomy[,(-3)]
+#taxonomy <-  separate(taxonomy, tax, c("D0","D1", "D2", "D3", "D4", "D5", "D6","D7"), sep = ";", fill = "right")
+#taxonomy <- taxonomy[,c(1:8)]
+
+#write.table(taxonomy, file="taxonomy", sep='\t',col.names=TRUE, row.names=FALSE)
+#open in excel, delete D_0__ etc 
+# save as taxonomy2.csv
+
+#read in otu table
+otu_table=read.csv("R_microbiome_data_files/Svtab1.csv",sep=",",row.names=1)
+otu_table=as.matrix(otu_table)
+
+#read in taxonomy
+taxonomy=read.csv("R_microbiome_data_files/taxonomy2.csv",sep=",",row.names=1)
+taxonomy=as.matrix(taxonomy)
+
+metatable <- read.delim("R_microbiome_data_files/metadata_reorder3.txt") 
+#View(metatable)
+row.names(metatable) <- metatable[[1]]
+metatable<- metatable[,(-1)]
+META <- sample_data(metatable)
+
+phy_tree <- read_tree("C:/Users/Yoann/Desktop/Vienna/Experiments/Australia/Microbiome_evolution/Manuscript/R/github/bee-microbiome-evolution/R_microbiome_analysis/data_files/rooted_tree.nwk")
+
+#import as phyloseq objects
+OTU=otu_table(otu_table,taxa_are_rows=TRUE)
+TAX=tax_table(taxonomy)
+
+#create phyloseq object
+ps1<- phyloseq(OTU, TAX, META, phy_tree)
+
+# change taxonomy header 
+colnames(tax_table(ps1)) <- c(D0 = "Kingdom", D1 = "Phylum", D2 = "Class", 
+                              D3 = "Order", D4 = "Family", D5 = "Genus", D6 = "Species")
+
+#check
+rank_names(ps1)
+
+#The total number of ASVs in the whole dataset is 
+length(taxa_names(ps1))
+
+#get rid of things we do not want
+ps1 = subset_taxa(ps1, Kingdom =="Bacteria")
+ps1 <- prune_taxa(taxa_sums(ps1) > 0, ps1)
+ps1<-subset_taxa(ps1, (Order!="Chloroplast"))
+ps1<-subset_taxa(ps1, (Family!="Mitochondria"))
+length(taxa_names(ps1))
+#reduces total taxa numbers from 1717 to 1167 (minus 550)
+
+# mean, max and min of sample read counts
+smin <- min(sample_sums(ps1))
+smean <- mean(sample_sums(ps1))
+smax <- max(sample_sums(ps1))
+# printing the results
+cat("The minimum sample read count is:",smin)
+cat("The average sample read count is:",smean)
+cat("The maximum sample read count is:",smax)
+
+
+#build a custom color palette for phyloseq object
+getPalette = colorRampPalette(brewer.pal(12, "Set3"))
+speciesList = unique(tax_table(ps1)[,"Genus"])
+speciesPalette = getPalette(length(speciesList))
+names(speciesPalette) = speciesList
+```
+
+### Plot rarefaction curves
+```{r rarefaction_curve, fig.heigt=5, fig.width=12}
+rare<- ps1
+rare2 = subset_samples(rare, treatment2 != "positive_control")
+smin <- min(sample_sums(rare2))
+cat("The minimum sample read count is:",smin)
+
+# rarefy without replacement
+set.seed(42)
+ps.rarefied = rarefy_even_depth(rare2, rngseed=1, sample.size=12351, replace=F)
+ps.rarefied
+library(ranacapa)
+cbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7","maroon","khaki4")
+
+ggrare(ps.rarefied, step = 100, se = FALSE, color="treatment2")+ scale_colour_manual(values=cbPalette)+geom_line(size=1)+ theme_bw()+theme(axis.line = element_line(colour = "black"))+ theme(legend.title = element_blank(),
+                legend.background = element_blank(),
+                legend.key = element_blank()) + theme(text = element_text(size = 22))+theme(strip.text = element_text(face="bold", size=20))+ theme(axis.title.x=element_blank())+ggtitle("Rarefaction even depth")+theme(plot.title = element_text(hjust = 0.5, size=20, face="italic"))+theme(legend.text=element_text(size=17, face="italic"))
+ggsave("R_microbiome_figures/supp_rarefaction_sub.png", height = 5, width = 12)
+
+
+ggrare(rare2, step = 100, se = FALSE, color="treatment2")+ scale_colour_manual(values=cbPalette)+geom_line(size=1)+ theme_bw()+theme(axis.line = element_line(colour = "black"))+ theme(legend.title = element_blank(),
+                legend.background = element_blank(),
+                legend.key = element_blank()) + theme(text = element_text(size = 22))+theme(strip.text = element_text(face="bold", size=20))+ theme(axis.title.x=element_blank())+ggtitle("Rarefaction run")+theme(plot.title = element_text(hjust = 0.5, size=20, face="italic"))+theme(legend.text=element_text(size=17, face="italic"))
+ggsave("R_microbiome_figures/supp_rarefaction_no_sub.png", height = 5, width = 12)
+```
+
+*** Supplementary figure: Rarefaction curves were used as a qualitative method to estimate the species richness as a function of sequencing depth for all samples. Rarefaction curves reached their asymptotes for all samples, suggesting that saturation in sequencing was achieved.
+
+### Positive controls / mock community
+
+The experiment contained two positive control samples with DNA from the ZymoBIOMICS™ Microbial
+Community Standard (Zymo Research).
+
+
+#### Plot Mock with taxa accounting for at least 1% relative abundance
+
+```{r mock, eval = do_tech_analysis}
+ps_mock <- ps1
+ps_mock <- subset_samples(ps_mock, treatment == "positive_control")
+ps_mock <- prune_taxa(taxa_sums(ps_mock) > 0, ps_mock)
+#transform to proportional data
+ps_mock2 <- transform_sample_counts(ps_mock, function(OTU) {OTU / sum(OTU)})
+ps_mock2 <- tax_glom(ps_mock2, taxrank = 'Genus')
+low1pc_reads <- max(taxa_sums(ps_mock2)) * 1 / 100
+low1pc_indices <- which(taxa_sums(ps_mock2) < low1pc_reads)
+length(low1pc_indices)
+taxa_names(ps_mock2)[low1pc_indices[1]] <- "other"
+ps_merge <- merge_taxa(ps_mock2, low1pc_indices, "other")
+tax_table(ps_merge)["other", ] <- c("other")
+
+getPalette = colorRampPalette(brewer.pal(10, "Set3"))
+speciesList = unique(tax_table(ps_merge)[,"Genus"])
+speciesPalette = getPalette(length(speciesList))
+names(speciesPalette) = speciesList
+
+ps_df <- psmelt(ps_merge)
+
+ps_df_sum <- ps_df %>%
+  group_by(Sample,Genus) %>%
+  summarise(Abundance = mean(Abundance)) %>%
+  group_by(Sample) %>%
+  mutate(Relative_abundance = Abundance / sum(Abundance)) %>%
+  ungroup() %>%
+  mutate(Genus = fct_reorder(Genus, Abundance, .fun = sum, .desc = TRUE))
+levels(ps_df_sum$Genus)
+
+mock_plot<-ggplot(data = ps_df_sum, aes(x = Sample, y = Relative_abundance, fill = Genus)) +
+  geom_bar(stat = "identity")+ scale_y_continuous(expand = c(0,0))+ scale_fill_manual(values= speciesPalette)+ylab("relative abundance")
+#mock_plot<-mock_plot+labs(title="Mock samples")
+mock_plot<-mock_plot+ theme(legend.text=element_text(size=9,face="italic"))#+theme(legend.key = element_rect(color = NA, fill = NA),legend.key.size = unit(0.9, "cm"))
+mock_plot<-mock_plot+theme(axis.text.x = element_text(size=12, face="bold"))+ theme(axis.title.x=element_blank())+ theme(legend.title=element_blank())+theme(axis.text.y = element_text(size=12, face="bold"))+ theme(axis.title.y=element_text(size=13, face="bold"))
+mock_plot2<-mock_plot+theme(plot.title = element_text(face = "bold", color="grey40",size = (17)))+theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r figure_S1, fig.align = "center",eval = do_tech_analysis}
+mock_comp <- "R_microbiome_data_files/mock_composition_ZymoResearch.png"
+figure_S1 <- "R_microbiome_figures/mock_composition_comparison.png"
+png(figure_S1, 7 * plot_res, 4 * plot_res, res = plot_res)
+ggarrange(mock_plot2, rasterGrob(readPNG(mock_comp)),labels = c("A", "B"))
+invisible(dev.off())
+knitr::include_graphics(figure_S1, dpi = plot_res)
+```
+All 8 Mock bacterial taxa correctly detected. 
+**Figure S1: Comparison of the mock community with the theoretical proportions.**
+The two mock samples sequenced in this study **(A)** show no big difference to the expected
+theoretical proportions of the reference **(B, bar with label *theoretical*)**. The three other bacterial taxa belong to honey bee core microbiome (Bartonella, Gilliamella and Snodgrassella). The relative abundance of these three taxa across the two Mock samples account for 0.23% of all reads, representing neglectable cross-contamination during sequencing.
