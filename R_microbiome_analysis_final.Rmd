@@ -30,9 +30,6 @@ library(RColorBrewer)
 library(tidyverse) # includes: ggplot2, dplyr, tidyr, readr, purr, tibble, stringr, forcats
 library(knitr)
 
-dd <- getwd()
-knitr::opts_chunk$set(warning=FALSE, cache=FALSE, fig.path=paste0(dd,'/R_microbiome_figures'))
-
 set.seed(42)
 rm(list = ls())
 #graphics.off()
@@ -73,9 +70,6 @@ Overview over all experimental variables:
 
 
 ```{r load}
-#setwd("C:/Users/Yoann/Desktop/Vienna/Experiments/Australia/Microbiome_evolution/Manuscript/R/github/bee-microbiome-evolution/R_microbiome_analysis")
-
-
 #Svtab <- read.delim("feature_table.txt")
 #replace . in colnames with - to match metadata.txt
 #colnames(Svtab)  <- gsub("\\.", "-", colnames(Svtab))
@@ -109,7 +103,7 @@ row.names(metatable) <- metatable[[1]]
 metatable<- metatable[,(-1)]
 META <- sample_data(metatable)
 
-phy_tree <- read_tree("C:/Users/Yoann/Desktop/Vienna/Experiments/Australia/Microbiome_evolution/Manuscript/R/github/bee-microbiome-evolution/R_microbiome_analysis/data_files/rooted_tree.nwk")
+phy_tree <- read_tree("R_microbiome_data_files/rooted_tree.nwk")
 
 #import as phyloseq objects
 OTU=otu_table(otu_table,taxa_are_rows=TRUE)
@@ -222,10 +216,15 @@ levels(ps_df_sum$Genus)
 mock_plot<-ggplot(data = ps_df_sum, aes(x = Sample, y = Relative_abundance, fill = Genus)) +
   geom_bar(stat = "identity")+ scale_y_continuous(expand = c(0,0))+ scale_fill_manual(values= speciesPalette)+ylab("relative abundance")
 #mock_plot<-mock_plot+labs(title="Mock samples")
-mock_plot<-mock_plot+ theme(legend.text=element_text(size=9,face="italic"))#+theme(legend.key = element_rect(color = NA, fill = NA),legend.key.size = unit(0.9, "cm"))
+mock_plot<-mock_plot+ theme(legend.text=element_text(size=9,face="italic"))
 mock_plot<-mock_plot+theme(axis.text.x = element_text(size=12, face="bold"))+ theme(axis.title.x=element_blank())+ theme(legend.title=element_blank())+theme(axis.text.y = element_text(size=12, face="bold"))+ theme(axis.title.y=element_text(size=13, face="bold"))
 mock_plot2<-mock_plot+theme(plot.title = element_text(face = "bold", color="grey40",size = (17)))+theme(plot.title = element_text(hjust = 0.5))
+mock_plot2
+ps_df_sum
 ```
+# Ich verstehe nicht, warum Bartonella und "others" im plot auftauchen, wenn diese doch gar nicht 1% erreichen.
+
+
 
 ```{r figure_S1, fig.align = "center",eval = do_tech_analysis}
 mock_comp <- "R_microbiome_data_files/mock_composition_ZymoResearch.png"
