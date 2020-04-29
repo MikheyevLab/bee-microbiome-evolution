@@ -238,3 +238,209 @@ All 8 Mock bacterial taxa correctly detected.
 **Figure S1: Comparison of the mock community with the theoretical proportions.**
 The two mock samples sequenced in this study **(A)** show no big difference to the expected
 theoretical proportions of the reference **(B, bar with label *theoretical*)**. The three other bacterial taxa belong to honey bee core microbiome (Bartonella, Gilliamella and Snodgrassella). The relative abundance of these three taxa across the two Mock samples account for 0.23% of all reads, representing neglectable cross-contamination during sequencing.
+
+
+
+#### comparing difference between methods
+We sequenced to types of samples: whole bee abdomen and the mix of three macerated guts for cage to cage transfers after each cycle
+Therefore, we need to test if these samples are different due to the differences in the methods prior extracting before deciding if we include all or not.
+Use PERMANOVA on bray-curtis dissimilarities using proportional transformed abundance data
+```{r}
+set.seed(42)
+methods = ps1
+Tetra = subset_samples(methods, treatment2 == "Tetracycline")
+Tetra <- prune_taxa(taxa_sums(Tetra) > 0, Tetra)
+Tetra <- transform_sample_counts(Tetra, function(OTU) {OTU / sum(OTU)})
+T_metadata <- as(sample_data(Tetra), "data.frame")
+adonis(distance(Tetra, method="bray") ~ sample_type,
+       data = T_metadata, perm=999)
+
+Glypho = subset_samples(methods, treatment2 == "Glyphosate")
+Glypho <- prune_taxa(taxa_sums(Glypho) > 0, Glypho)
+Glypho <- transform_sample_counts(Glypho, function(OTU) {OTU / sum(OTU)})
+G_metadata <- as(sample_data(Glypho), "data.frame")
+adonis(distance(Glypho, method="bray") ~ sample_type,
+       data = G_metadata, perm=999)
+
+Chloro = subset_samples(methods, treatment2 == "Chlorothalonil")
+Chloro <- prune_taxa(taxa_sums(Chloro) > 0, Chloro)
+Chloro <- transform_sample_counts(Chloro, function(OTU) {OTU / sum(OTU)})
+C_metadata <- as(sample_data(Chloro), "data.frame")
+adonis(distance(Chloro, method="bray") ~ sample_type,
+       data = C_metadata, perm=999)
+```
+The methods have no significant impact on the microbiome composition and therefore we will pool the samples in the following analysis
+
+### explore Alpha diversity 
+##### We plot the cycles one, two and three before high stress
+
+```{r alpha_Shannon, fig.heigt=13, fig.width=8}
+alpha<- ps1
+alpha1 = subset_samples(alpha, treatment != "hive_bee" & treatment != "positive_control"& treatment != "start_microbiome"& cycle != "cycle_three_after_stress")
+#rarefy to even numbers
+smin <- min(sample_sums(alpha1))
+cat("The minimum sample read count is:",smin)
+set.seed(1)  
+alpha1_ra <- rarefy_even_depth(alpha1,sample.size=12351, replace=FALSE, rngseed = 1) 
+alpha1_ra<-prune_taxa(taxa_sums(alpha1_ra) > 0, alpha1_ra)
+
+sample_data(alpha1_ra)$cycle<-factor(sample_data(alpha1_ra)$cycle,levels=c("cycle_one","cycle_two","cycle_three_before_stress"), labels=c("Cycle one","Cycle two","Cycle three"))
+levels(sample_data(alpha1_ra)$cycle)
+
+sample_data(alpha1_ra)$treatment3<-factor(sample_data(alpha1_ra)$treatment3,levels=c("Control","Chlorothalonil","Glyphosate","Tetracycline"))
+levels(sample_data(alpha1_ra)$treatment3)
+
+sigFunc = function(x){
+  if(x < 0.001){"***"} 
+  else if(x < 0.01){"**"}
+  else if(x < 0.05){"*"}
+  else{NA}}
+
+alpha_meas = c("Shannon")
+p2 <- plot_richness(alpha1_ra,"treatment3",color="treatment3", measures=alpha_meas)
+p2$layers <- p2$layers[-1]
+p2<-p2 + geom_boxplot(data=p2$data, aes(x=treatment3, y=value),show_guide=FALSE, alpha=0.1)+geom_point(position = position_jitter(w = 0.2, h = 0.1),show_guide=FALSE) +
+  geom_signif(comparisons=list(c("Control", "Chlorothalonil"), c("Control", "Glyphosate"),c("Control", "Tetracycline")),tip_length = 0.02,vjust=0.5, color=("grey20"),map_signif_level=sigFunc, y_position = c(3.7,3.7,3.9), margin_top = 0.1, textsize=6, test = wilcox.test)
+p2 <- p2 + guides(fill=guide_legend(title=element_blank()))+ylim(1.7,4)
+p2 <- p2 + theme(plot.title = element_text(hjust = 0.5))+scale_color_manual(values=c("#55596a", "#6ebe9f","#f3a935", "#D45E79"))
+p2 <- p2+ theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+ theme(panel.background = element_blank())
+p2 <- p2+theme(axis.line = element_line(colour = "black"))
+p2<- p2 + theme(legend.title = element_blank(),legend.background = element_blank(),legend.key = element_blank()) +ylab("Shannon alpha diversity")
+p2 <- p2+ theme(panel.border = element_blank())
+p2<-p2 + theme(text = element_text(size = 17))+theme(strip.text = element_text(face="bold", size=13.5, color="gray40"))+ theme(axis.title.x=element_blank())+theme(axis.text.x = element_blank())
+Shannon2<-p2+ facet_grid( ~cycle, scales="free_x",space="free")+theme(axis.ticks.x=element_blank())+theme(legend.position="bottom")+theme(strip.background =element_rect(fill="white", color="white"))
+Shannon2
+ggsave("R_microbiome_figures/alpha_Shannon.png", height = 3.5, width = 6.5)
+```
+***The Shannon index indicates the evenness of samples ->  captures  information  about  both  the  species  richness  (number  of species) and the relative abundances of the species. Increased Shannon index means increased species diversity.
+
+
+```{r alpha_Observed, fig.heigt=13, fig.width=8}
+alpha<- ps1
+alpha1 = subset_samples(alpha, treatment != "hive_bee" & treatment != "positive_control"& treatment != "start_microbiome"& cycle != "cycle_three_after_stress")
+#rarefy to even numbers
+smin <- min(sample_sums(alpha1))
+cat("The minimum sample read count is:",smin)
+set.seed(1)  
+alpha1_ra <- rarefy_even_depth(alpha1,sample.size=12351, replace=FALSE, rngseed = 1) 
+
+sample_data(alpha1_ra)$cycle<-factor(sample_data(alpha1_ra)$cycle,levels=c("cycle_one","cycle_two","cycle_three_before_stress"), labels=c("Cycle one","Cycle two","Cycle three"))
+levels(sample_data(alpha1_ra)$cycle)
+
+sample_data(alpha1_ra)$treatment3<-factor(sample_data(alpha1_ra)$treatment3,levels=c("Control","Chlorothalonil","Glyphosate","Tetracycline"))
+levels(sample_data(alpha1_ra)$treatment3)
+
+sigFunc = function(x){
+  if(x < 0.001){"***"} 
+  else if(x < 0.01){"**"}
+  else if(x < 0.05){"*"}
+  else{NA}}
+
+alpha_meas = c("Observed")
+p2 <- plot_richness(alpha1_ra,"treatment3",color="treatment3", measures=alpha_meas)
+p2$layers <- p2$layers[-1]
+p2<-p2 + geom_boxplot(data=p2$data, aes(x=treatment3, y=value),show_guide=FALSE, alpha=0.1)+geom_point(position = position_jitter(w = 0.2, h = 0.1),show_guide=FALSE) +
+  geom_signif(comparisons=list(c("Control", "Chlorothalonil"), c("Control", "Glyphosate"),c("Control", "Tetracycline")),tip_length = 0.02,vjust=0.5, color=("grey20"),map_signif_level=sigFunc, y_position = c(70,77,81), margin_top = 0.1, textsize=6, test = wilcox.test)
+
+p2 <- p2 + guides(fill=guide_legend(title=element_blank()))+ylim(17,84)
+p2 <- p2 + theme(plot.title = element_text(hjust = 0.5))+scale_color_manual(values=c("#55596a", "#6ebe9f","#f3a935", "#D45E79"))
+p2 <- p2+ theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+ theme(panel.background = element_blank())
+p2 <- p2+theme(axis.line = element_line(colour = "black"))
+p2<- p2 + theme(legend.title = element_blank(),legend.background = element_blank(),legend.key = element_blank()) +ylab("Observed alpha diversity")
+p2 <- p2+ theme(panel.border = element_blank())
+p2<-p2 + theme(text = element_text(size = 17))+theme(strip.text = element_text(face="bold", size=13.5, color="gray40"))+ theme(axis.title.x=element_blank())+theme(axis.text.x = element_blank())
+p2<-p2+ facet_grid( ~cycle,scales="free_x",space="free")+theme(axis.ticks.x=element_blank())+theme(legend.position="bottom")+theme(strip.background =element_rect(fill="white", color="white"))
+Observed<-p2+ geom_point(size = -1, shape = 15,fill="treatment3") +geom_boxplot(show.legend = FALSE)+guides(color = guide_legend(override.aes = list(size = 7,fill="treatment3",alpha=0.5)))+ theme(axis.title.y=element_text(size=14))
+Observed
+ggsave("R_microbiome_figures/alpha_Observed.png", height = 3.5, width = 6.5)
+```
+*** Supplementary figure Observed alpha diversity
+The observed plot shows the difference in detected OTUs. 
+
+### make statistical comparisons on alpha diversity indices Observed
+```{r warning=FALSE}
+results = estimate_richness(alpha1_ra, measures = 'Observed')
+d = sample_data(alpha1_ra)
+
+# calculate wilcox-test
+Control_1 = results[d[,'treatment_cycle3'] == 'Control_cycle_1',]
+Tetracycline_1 = results[d[,'treatment_cycle3'] == 'Tetracycline_cycle_1',]
+Glyphosate_1 = results[d[,'treatment_cycle3'] == 'Glyphosate_cycle_1',]
+Chlorothalonil_1 = results[d[,'treatment_cycle3'] == 'Chlorothalonil_cycle_1',]
+wilcox.test(Control_1, Chlorothalonil_1)
+wilcox.test(Control_1, Glyphosate_1)
+wilcox.test(Control_1, Tetracycline_1)
+
+pvalues<-c(0.139,0.0184,0.0111)
+p.adjust(pvalues,method="fdr")
+
+#cycle 2
+Control_2 = results[d[,'treatment_cycle3'] == 'Control_cycle_2',]
+Tetracycline_2 = results[d[,'treatment_cycle3'] == 'Tetracycline_cycle_2',]
+Glyphosate_2 = results[d[,'treatment_cycle3'] == 'Glyphosate_cycle_2',]
+Chlorothalonil_2 = results[d[,'treatment_cycle3'] == 'Chlorothalonil_cycle_2',]
+wilcox.test(Control_2, Chlorothalonil_2)
+wilcox.test(Control_2, Glyphosate_2)
+wilcox.test(Control_2, Tetracycline_2)
+
+pvalues<-c(0.222,0.477,3.449e-05)
+p.adjust(pvalues,method="fdr")
+
+
+#cycle 3
+control_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'control_cycle_3_before_stress',]
+Tetracycline_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'Tetracycline_cycle_3_before_stress',]
+Glyphosate_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'Glyphosate_cycle_3_before_stress',]
+Chlorothalonil_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'Chlorothalonil_cycle_3_before_stress',]
+wilcox.test(control_cycle_3_before_stress, Chlorothalonil_cycle_3_before_stress)
+wilcox.test(control_cycle_3_before_stress, Glyphosate_cycle_3_before_stress)
+wilcox.test(control_cycle_3_before_stress, Tetracycline_cycle_3_before_stress)
+
+pvalues<-c(0.072,0.038,9.364e-06)
+p.adjust(pvalues,method="fdr")
+```
+
+## make statistical comparisons Shannon
+```{r warning=FALSE}
+results = estimate_richness(alpha1_ra, measures = 'Shannon')
+d = sample_data(alpha1_ra)
+
+# calculate wilcox-test
+Control_1 = results[d[,'treatment_cycle3'] == 'Control_cycle_1',]
+Tetracycline_1 = results[d[,'treatment_cycle3'] == 'Tetracycline_cycle_1',]
+Glyphosate_1 = results[d[,'treatment_cycle3'] == 'Glyphosate_cycle_1',]
+Chlorothalonil_1 = results[d[,'treatment_cycle3'] == 'Chlorothalonil_cycle_1',]
+wilcox.test(Control_1, Chlorothalonil_1)
+wilcox.test(Control_1, Glyphosate_1)
+wilcox.test(Control_1, Tetracycline_1)
+
+pvalues<-c(0.0596,0.002914,0.004396)
+p.adjust(pvalues,method="fdr")
+
+#cycle 2
+Control_2 = results[d[,'treatment_cycle3'] == 'Control_cycle_2',]
+Tetracycline_2 = results[d[,'treatment_cycle3'] == 'Tetracycline_cycle_2',]
+Glyphosate_2 = results[d[,'treatment_cycle3'] == 'Glyphosate_cycle_2',]
+Chlorothalonil_2 = results[d[,'treatment_cycle3'] == 'Chlorothalonil_cycle_2',]
+wilcox.test(Control_2, Chlorothalonil_2)
+wilcox.test(Control_2, Glyphosate_2)
+wilcox.test(Control_2, Tetracycline_2)
+
+pvalues<-c(0.671,0.9279,7.396e-07)
+p.adjust(pvalues,method="fdr")
+
+
+#cycle 3
+control_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'control_cycle_3_before_stress',]
+Tetracycline_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'Tetracycline_cycle_3_before_stress',]
+Glyphosate_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'Glyphosate_cycle_3_before_stress',]
+Chlorothalonil_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'Chlorothalonil_cycle_3_before_stress',]
+wilcox.test(control_cycle_3_before_stress, Chlorothalonil_cycle_3_before_stress)
+wilcox.test(control_cycle_3_before_stress, Glyphosate_cycle_3_before_stress)
+wilcox.test(control_cycle_3_before_stress, Tetracycline_cycle_3_before_stress)
+
+pvalues<-c(0.641,0.000385,2.124e-08)
+p.adjust(pvalues,method="fdr")
+
+```
+
