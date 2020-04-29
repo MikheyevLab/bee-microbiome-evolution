@@ -65,11 +65,9 @@ summary(chlorContrFiltered)
 # Plot results
 
 ```{r}
-p1 <- tibble("chlorothalonil" = hypChlor$samples[,1], "tetracycline" = hypTet$samples[,1], "glyphosate" = hypGlyph$samples[,1]) %>% gather(key = "contrast", value = "b") %>% group_by(contrast) %>%  ggplot(aes(x = contrast, y=b)) + stat_halfeye(point_interval = mode_hdi, .width = c(.66, .95)) + geom_hline(yintercept = 0, color = "red") + theme_minimal() + theme(axis.title.x = element_blank()) + coord_trans(limy=c(-20,20)) +  ggtitle("Past chemical exposure") + ylab("Bee survival")
+p1 <- tibble("chlorothalonil" = hypChlor$samples[,1], "tetracycline" = hypTet$samples[,1], "glyphosate" = hypGlyph$samples[,1]) %>% gather(key = "contrast", value = "b") %>% group_by(contrast) %>%  ggplot(aes(x = contrast, y=b)) + stat_halfeye(point_interval = mode_hdi, .width = c(.66, .95)) + geom_hline(yintercept = 0, color = "red") + theme_minimal() + theme(axis.title.x = element_blank(), plot.margin = unit(c(.5,.5,.5,.5), "cm"), axis.text.x = element_text(angle=45, hjust=1)) + coord_trans(limy=c(-20,15)) +  ggtitle("Past chemical exposure") + ylab(expression("\t\tBayes factor difference between\nsurvial in treatment and control groups"))
 
-tibble("chlorothalonil" = hypChlor$samples[,1], "tetracycline" = hypTet$samples[,1], "glyphosate" = hypGlyph$samples[,1]) %>% gather(key = "contrast", value = "b") %>% group_by(contrast) %>%  ggplot(aes(x = contrast, y=b)) + stat_halfeye(point_interval = mode_hdi, .width = c(.66, .95)) + geom_hline(yintercept = 0, color = "red") + theme_minimal() + theme(axis.title.x = element_blank()) +  ggtitle("Past chemical exposure") + ylab("Bee survival") + coord_trans(limy=c(0,1)) 
-
-p2 <- tibble("+ chlorothalonil" = hypChlorContr$samples[,1], "+ gut filtrate" = hypChlorContrFiltered$samples[,1]) %>% gather(key = "contrast", value = "b") %>% group_by(contrast) %>%  ggplot(aes(x = contrast, y=b)) + stat_halfeye(point_interval = mode_hdi, .width = c(.66, .95)) + geom_hline(yintercept = 0, color = "red")  + theme_minimal() +theme(axis.title = element_blank()) + coord_trans(limy=c(-20,20)) + ggtitle("Chemical addition")
+p2 <- tibble("+ chlorothalonil" = hypChlorContr$samples[,1], "+ gut filtrate" = hypChlorContrFiltered$samples[,1]) %>% gather(key = "contrast", value = "b") %>% group_by(contrast) %>%  ggplot(aes(x = contrast, y=b)) + stat_halfeye(point_interval = mode_hdi, .width = c(.66, .95)) + geom_hline(yintercept = 0, color = "red")  + theme_minimal() +theme(axis.title = element_blank(), axis.text.x = element_text(angle=45, hjust=1), plot.margin = unit(c(.5,.5,.5,.5), "cm")) + coord_trans(limy=c(-20,15)) + ggtitle("Chemical addition")
 
 plot_grid(p1, p2, nrow = 1, rel_widths = c(3,2), labels = c("A", "B"))
 ggsave("plots/brms.pdf", width = 8, height = 4)
