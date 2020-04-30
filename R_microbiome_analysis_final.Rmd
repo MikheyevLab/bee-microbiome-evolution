@@ -210,7 +210,8 @@ ps_df_sum <- ps_df %>%
   group_by(Sample) %>%
   mutate(Relative_abundance = Abundance / sum(Abundance)) %>%
   ungroup() %>%
-  mutate(Genus = fct_reorder(Genus, Abundance, .fun = sum, .desc = TRUE))
+  mutate(Genus = fct_reorder(Genus, Abundance, .fun = sum, .desc = TRUE)) %>%
+  droplevels()
 levels(ps_df_sum$Genus)
 
 mock_plot<-ggplot(data = ps_df_sum, aes(x = Sample, y = Relative_abundance, fill = Genus)) +
@@ -228,7 +229,7 @@ ps_df_sum
 
 ```{r figure_S1, fig.align = "center",eval = do_tech_analysis}
 mock_comp <- "R_microbiome_data_files/mock_composition_ZymoResearch.png"
-figure_S1 <- "R_microbiome_figures/mock_composition_comparison.png"
+figure_S1 <- "R_microbiome_figures/Supp_mock_composition_comparison.png"
 png(figure_S1, 7 * plot_res, 4 * plot_res, res = plot_res)
 ggarrange(mock_plot2, rasterGrob(readPNG(mock_comp)),labels = c("A", "B"))
 invisible(dev.off())
@@ -307,7 +308,7 @@ p2 <- p2+ theme(panel.grid.major = element_blank(), panel.grid.minor = element_b
 p2 <- p2+theme(axis.line = element_line(colour = "black"))
 p2<- p2 + theme(legend.title = element_blank(),legend.background = element_blank(),legend.key = element_blank()) +ylab("Shannon alpha diversity")
 p2 <- p2+ theme(panel.border = element_blank())
-p2<-p2 + theme(text = element_text(size = 17))+theme(strip.text = element_text(face="bold", size=13.5, color="gray40"))+ theme(axis.title.x=element_blank())+theme(axis.text.x = element_blank())
+p2<-p2 + theme(text = element_text(size = 17))+theme(strip.text = element_text(face="bold", size=15, color="gray40"))+ theme(axis.title.x=element_blank())+theme(axis.text.x = element_blank())
 Shannon2<-p2+ facet_grid( ~cycle, scales="free_x",space="free")+theme(axis.ticks.x=element_blank())+theme(legend.position="bottom")+theme(strip.background =element_rect(fill="white", color="white"))
 Shannon2
 ggsave("R_microbiome_figures/alpha_Shannon.png", height = 3.5, width = 6.5)
@@ -348,11 +349,11 @@ p2 <- p2+ theme(panel.grid.major = element_blank(), panel.grid.minor = element_b
 p2 <- p2+theme(axis.line = element_line(colour = "black"))
 p2<- p2 + theme(legend.title = element_blank(),legend.background = element_blank(),legend.key = element_blank()) +ylab("Observed alpha diversity")
 p2 <- p2+ theme(panel.border = element_blank())
-p2<-p2 + theme(text = element_text(size = 17))+theme(strip.text = element_text(face="bold", size=13.5, color="gray40"))+ theme(axis.title.x=element_blank())+theme(axis.text.x = element_blank())
+p2<-p2 + theme(text = element_text(size = 17))+theme(strip.text = element_text(face="bold", size=15, color="gray40"))+ theme(axis.title.x=element_blank())+theme(axis.text.x = element_blank())
 p2<-p2+ facet_grid( ~cycle,scales="free_x",space="free")+theme(axis.ticks.x=element_blank())+theme(legend.position="bottom")+theme(strip.background =element_rect(fill="white", color="white"))
 Observed<-p2+ geom_point(size = -1, shape = 15,fill="treatment3") +geom_boxplot(show.legend = FALSE)+guides(color = guide_legend(override.aes = list(size = 7,fill="treatment3",alpha=0.5)))+ theme(axis.title.y=element_text(size=14))
 Observed
-ggsave("R_microbiome_figures/alpha_Observed.png", height = 3.5, width = 6.5)
+ggsave("R_microbiome_figures/Supp_alpha_Observed.png", height = 3.5, width = 6.5)
 ```
 *** Supplementary figure Observed alpha diversity
 The observed plot shows the difference in detected OTUs. 
@@ -441,6 +442,572 @@ wilcox.test(control_cycle_3_before_stress, Tetracycline_cycle_3_before_stress)
 
 pvalues<-c(0.641,0.000385,2.124e-08)
 p.adjust(pvalues,method="fdr")
+```
+
+# Beta diversity
+
+### ordination plots
+```{r NMDS_man, fig.heigt=7.5, fig.width=10}
+ord2<- ps1
+ord2 = subset_samples(ord2, treatment != "hive_bee" & treatment != "positive_control"& treatment != "start_microbiome" & cycle !="cycle_three_after_stress")
+
+ord2 <- transform_sample_counts(ord2, function(OTU) {OTU / sum(OTU)})
+sample_data(ord2)$cycle<-factor(sample_data(ord2)$cycle,levels=c("cycle_one","cycle_two", "cycle_three_before_stress"), labels=c("Cycle one","Cycle two","Cycle three"))
+levels(sample_data(ord2)$cycle)
+
+sample_data(ord2)$treatment3<-factor(sample_data(ord2)$treatment3,levels=c("Control","Chlorothalonil","Glyphosate","Tetracycline"))
+levels(sample_data(ord2)$treatment3)
+
+ord2 <- prune_taxa(taxa_sums(ord2) > 0, ord2)
+set.seed(42)
+dist<-phyloseq::distance(ord2, method="bray") 
+ordination = ordinate(ord2, method="NMDS", distance=dist)
+cat("stress is:", ordination$stress)
+p2 <- plot_ordination(ord2, ordination, color="treatment3") +geom_point(size=2.5)
+p2 <- p2 + guides(fill=guide_legend(title=element_blank()))
+p2 <- p2 + theme(plot.title = element_text(hjust = 0.5))+scale_color_manual(values=c("#55596a", "#6ebe9f","#f3a935", "#D45E79"),guide = guide_legend(override.aes = list(shape = c(rep(15, 4)),size=7,alpha=0.5)))
+p2 <- p2+ theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+ theme(panel.background = element_blank())
+p2 <- p2+theme(axis.line = element_line(colour = "black"))
+p2<- p2 + theme(legend.title = element_blank(),legend.background = element_blank(),legend.key = element_blank())
+p2 <- p2+ theme(panel.border = element_blank())
+p2<-p2 + theme(text = element_text(size = 16.5))+theme(strip.text = element_blank())
+#+theme(strip.text = element_text(face="bold", size=14, color="gray40"))+ theme(axis.title.x=element_blank())+theme(axis.text.x = element_blank())
+p2<-p2+ facet_wrap( ~cycle,scales="free_x")+theme(legend.position="bottom")+theme(strip.background =element_rect(fill="white", color="white"))
+NMDS_main<-p2+stat_ellipse(aes(group = treatment3),size=1.1, alpha=0.5)+ theme(panel.spacing.x=unit(5.5, "lines"))+coord_cartesian(xlim = c(-0.9, 0.3))+ theme(axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 20)))
+NMDS_main
+ggsave("R_microbiome_figures/NMDS.png", height = 5, width = 10)
+```
+
+```{r PCoA, fig.heigt=8, fig.width=9}
+ord2<- ps1
+ord2 = subset_samples(ord2, treatment != "hive_bee" & treatment != "positive_control"& treatment != "start_microbiome" & cycle !="cycle_three_before_stress"& cycle !="cycle_three_after_stress")
+ord2 <- transform_sample_counts(ord2, function(OTU) {OTU / sum(OTU)})
+sample_data(ord2)$cycle<-factor(sample_data(ord2)$cycle,levels=c("cycle_one","cycle_two"), labels=c("Cycle one","Cycle two"))
+levels(sample_data(ord2)$cycle)
+
+sample_data(ord2)$treatment2<-factor(sample_data(ord2)$treatment2,levels=c("Control","Chlorothalonil","Glyphosate","Tetracycline"),labels=c("Control","Chlorothalonil","Glyphosate","Tetracycline"))
+levels(sample_data(ord2)$treatment2)
+
+set.seed(42)
+dist<-phyloseq::distance(ord2, method="bray") 
+ordination = ordinate(ord2, method="PCoA", distance=dist)
+cat("stress is:", ordination$stress)
+p2 <- plot_ordination(ord2, ordination, color="treatment2", shape="cycle") +geom_point(size=3.5)+scale_colour_manual(values=c("#55596a", "#6ebe9f","#f3a935", "#D45E79"))+ theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+ theme(panel.border = element_blank())+ theme(panel.background = element_blank())+theme_classic()+ 
+  theme(text = element_text(size = 17))+theme(axis.line = element_line(colour = "black")) + theme(legend.title = element_blank(),
+                legend.background = element_blank(),
+                legend.key = element_blank()) 
+p2<-p2+stat_ellipse(aes(group = treatment2),size=1.1)
+p2
+ggsave("R_microbiome_figures/Supp_PCoA.png", height = 5, width = 10)
+```
+
+```{r set_up_for_taxa_plots}
+tax <-ps1
+ps_bdiv2 <- transform_sample_counts(tax, function(OTU) {OTU / sum(OTU)})
+tax_all2<- ps_bdiv2
+ps_pd2 <- tax_glom(tax_all2, taxrank = 'Genus')
+
+low1pc_reads <- max(taxa_sums(ps_pd2)) * 1 / 100
+low1pc_indices <- which(taxa_sums(ps_pd2) < low1pc_reads)
+length(low1pc_indices)
+taxa_names(ps_pd2)[low1pc_indices[1]] <- "other"
+taxa3 <- merge_taxa(ps_pd2, low1pc_indices, "other")
+tax_table(taxa3)["other", ] <- c("other")
+
+#build a custom color palette for phyloseq object
+getPalette = colorRampPalette(brewer.pal(8, "Set3"))
+speciesList = unique(tax_table(taxa3)[,"Genus"])
+speciesPalette = getPalette(length(speciesList))
+names(speciesPalette) = speciesList
+```
+
+```{r taxa_plot}
+ps2 <-taxa3
+ps3 = subset_samples(ps2, cycle !="positive_control" & cycle !="hive_bee" & cycle !="cycle_three_after_stress"& cycle !="start_microbiome")
+ps3 <- prune_taxa(taxa_sums(ps3) > 0, ps3)
+
+ps_df <- psmelt(ps3)
+ps_df_sum <- ps_df %>%
+  group_by(treatment3,Genus,cycle) %>%
+  summarise(Abundance = mean(Abundance)) %>%
+  group_by(treatment3,cycle) %>%
+  mutate(relative_abundance = Abundance / sum(Abundance)) %>%
+  ungroup() %>%
+  mutate(Genus = fct_reorder(Genus, Abundance, .fun = sum, .desc = TRUE))
+levels(ps_df_sum$Genus)
+
+neworder <- c("cycle_one","cycle_two","cycle_three_before_stress")
+change <- c("Cycle one","Cycle two","Cycle three")
+ps_df_sum2 <- arrange(transform(ps_df_sum, cycle=factor(cycle,levels=neworder,labels=change)),cycle)
+
+neworder2 <- c("Control","Chlorothalonil","Glyphosate", "Tetracycline")
+ps_df_sum3 <- arrange(transform(ps_df_sum2, treatment3=factor(treatment3,levels=neworder2)),treatment3)
+
+p<-ggplot(data = ps_df_sum3, aes(x = treatment3, y = relative_abundance, fill = Genus)) +
+  geom_bar(stat = "identity")+ scale_fill_manual(values= speciesPalette)+ scale_y_continuous(expand = c(0,0))+ylab("relative abundance")
+p<-p+ theme(legend.position="bottom")
+p<-p+ theme(legend.text=element_text(size=11, face = "italic"))+theme(legend.key = element_rect(color = NA, fill = NA),
+                                                     legend.key.size = unit(0.6, "cm"))+theme(legend.title = element_blank())
+p<-p + facet_grid( ~cycle, scales="free_x",space="free") +
+  theme(strip.text = element_text(size=12,face="bold",color="grey40"))
+taxa2<-p+theme(axis.title.y = element_text(size=11, face="bold"))+theme(axis.text.y = element_text(size=11, face="bold"))+theme(axis.text.x = element_text(size=10, face="bold", angle = 90))+theme(axis.title.x = element_blank())+theme(axis.text.x = element_text(vjust = 0.5,hjust=1))+theme(strip.background =element_rect(fill="white", color="white"))+theme(axis.text.x = element_text(vjust = 0.5,hjust=1))
+taxa2
+ggsave("R_microbiome_figures/taxa_man.png", height = 4.5, width = 6.5)
+```
+
+```{r taxa_plot2}
+ps2 <-taxa3
+ps3 = subset_samples(ps2, cycle !="positive_control" & cycle !="hive_bee" & cycle !="cycle_two"& cycle !="cycle_one"& cycle !="start_microbiome")
+ps3 <- prune_taxa(taxa_sums(ps3) > 0, ps3)
+
+ps_df <- psmelt(ps3)
+ps_df_sum <- ps_df %>%
+  group_by(treatment3,Genus,cycle) %>%
+  summarise(Abundance = mean(Abundance)) %>%
+  group_by(treatment3,cycle) %>%
+  mutate(relative_abundance = Abundance / sum(Abundance)) %>%
+  ungroup() %>%
+  mutate(Genus = fct_reorder(Genus, Abundance, .fun = sum, .desc = TRUE))
+levels(ps_df_sum$Genus)
+
+neworder <- c("cycle_three_before_stress","cycle_three_after_stress")
+change <- c("Cycle three before stress","Cycle three after stress")
+
+ps_df_sum2 <- arrange(transform(ps_df_sum, cycle=factor(cycle,levels=neworder,labels=change)),cycle)
+
+neworder2 <- c("Control","control_Chlorothalonil", "Chlorothalonil","control_Glyphosate","Glyphosate","control_Tetracycline", "Tetracycline")
+change2 <- c("Control","control \n Chlorothalonil", "Chlorothalonil","control \n Glyphosate","Glyphosate","control \n Tetracycline", "Tetracycline")
+ps_df_sum3 <- arrange(transform(ps_df_sum2, treatment3=factor(treatment3,levels=neworder2,labels=change2)),treatment3)
+
+p<-ggplot(data = ps_df_sum3, aes(x = treatment3, y = relative_abundance, fill = Genus)) +
+  geom_bar(stat = "identity")+ scale_fill_manual(values= speciesPalette)+ scale_y_continuous(expand = c(0,0))+ylab("relative abundance")
+p<-p+ theme(legend.position="bottom")
+p<-p+ theme(legend.text=element_text(size=10, face = "italic"))+theme(legend.key = element_rect(color = NA, fill = NA),
+                                                     legend.key.size = unit(0.6, "cm"))+theme(legend.title = element_blank())+ facet_grid( ~cycle, scales="free_x",space="free")
+taxa3<-p +theme(strip.text = element_text(size=12,face="bold",color="grey40"))
+taxa3<-taxa3+theme(axis.title.y = element_text(size=11, face="bold"))+theme(axis.text.y = element_text(size=10, face="bold"))+theme(axis.text.x = element_text(size=10, face="bold", angle = 90))+theme(axis.title.x = element_blank())+theme(strip.background =element_rect(fill="white", color="white"))+theme(axis.text.x = element_text(vjust = 0.5,hjust=1))
+taxa3
+ggsave("R_microbiome_figures/Supp_taxonomy.png", height = 4.5, width = 5.9)
+```
+
+#### make graph combined with one legend
+```{r, figure_1}
+#text <- paste("Figure 2 Alpha diversity Shannon index (A), comparing control to treatments by Wilcoxon-Tests. NMDS on Bray-Curtis dissimilarity (B), ellipses represent 95% confidence intervals around treatment centroids. Stress of NMDS is: 0.09. Taxonomy of genera with at least 1% relative abundance (C).", sep = " ")
+#text.p <- ggparagraph(text = text, face = "italic", size = 11, color = "black")
+# Arrange the plots on the same page
+
+#legend <- get_legend(taxa2)
+#taxa3<-taxa2+theme(legend.position = "none")
+#p<-ggarrange(Shannon2,taxa2,NMDS_main,legend, 
+         # ncol = 2, nrow = 2,labels = c("A", "B","C"))
+
+#try<-ggarrange(Shannon2,NMDS_main)
+
+
+library(egg) #helps to correctly align the plots
+
+figure_1 <- "R_microbiome_figures/manuscript_main.png"
+png(figure_1, 7 * plot_res, 8 * plot_res, res = plot_res)
+ggarrange(Shannon2, NMDS_main,nrow=2,labels = c("A", "B"))
+invisible(dev.off())
+knitr::include_graphics(figure_1, dpi = plot_res)
+```
+
+```{r, main_figure2}
+figure_2 <- "R_microbiome_figures/main_figure2.png"
+png(figure_2, 6 * plot_res, 3.9 * plot_res, res = plot_res)
+p2<-ggarrange(taxa2,labels = "C")
+invisible(dev.off())
+knitr::include_graphics(figure_2, dpi = plot_res)
+```
+
+## Run statistics
+
+### Treatments different to the control?
+#### test difference between control and treatments to verify statistically difference seen in ordination
+```{r}
+set.seed(42)
+compare=ps1
+compare1 <- transform_sample_counts(compare, function(OTU) {OTU / sum(OTU)})
+
+cycle1 = subset_samples(compare, cycle == "cycle_one")
+cycle1 <- prune_taxa(taxa_sums(cycle1) > 0, cycle1)
+cycle1 <- transform_sample_counts(cycle1, function(OTU) {OTU / sum(OTU)})
+cycle1.1 <- as(sample_data(cycle1), "data.frame")
+
+cycle2 = subset_samples(compare, cycle == "cycle_two")
+cycle2 <- prune_taxa(taxa_sums(cycle2) > 0, cycle2)
+cycle2 <- transform_sample_counts(cycle2, function(OTU) {OTU / sum(OTU)})
+cycle2.1 <- as(sample_data(cycle2), "data.frame")
+
+cycle3b = subset_samples(compare, cycle == "cycle_three_before_stress")
+cycle3b <- prune_taxa(taxa_sums(cycle3b) > 0, cycle3b)
+cycle3b <- transform_sample_counts(cycle3b, function(OTU) {OTU / sum(OTU)})
+cycle3b.1 <- as(sample_data(cycle3b), "data.frame")
+
+cycle3a = subset_samples(compare, cycle == "cycle_three_after_stress")
+cycle3a <- prune_taxa(taxa_sums(cycle3a) > 0, cycle3a)
+cycle3a <- transform_sample_counts(cycle3a, function(OTU) {OTU / sum(OTU)})
+cycle3a.1 <- as(sample_data(cycle3a), "data.frame")
+
+#cycle 1
+
+subs <- subset_samples(cycle1, treatment2 %in% c("Control", "Chlorothalonil"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment2,
+       data = metadata, perm=999)
+
+subs <- subset_samples(cycle1, treatment2 %in% c("Control", "Glyphosate"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment2,
+       data = metadata, perm=999)
+
+
+subs <- subset_samples(cycle1, treatment2 %in% c("Control", "Tetracycline"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment2,
+       data = metadata, perm=999)
+
+pvalues <- c(0.21,0.022,0.004)
+p.adjust(pvalues,method="fdr")
+
+#cycle 2
+subs <- subset_samples(cycle2, treatment2 %in% c("Control", "Chlorothalonil"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment2,
+       data = metadata, perm=999)
+
+subs <- subset_samples(cycle2, treatment2 %in% c("Control", "Glyphosate"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment2,
+       data = metadata, perm=999)
+
+subs <- subset_samples(cycle2, treatment2 %in% c("Control", "Tetracycline"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment2,
+       data = metadata, perm=999)
+
+pvalues <- c(0.5,0.08,0.001)
+p.adjust(pvalues,method="fdr")
+
+
+#cycle 3 before stress
+
+subs <- subset_samples(cycle3_before_stress, treatment3 %in% c("Control", "Chlorothalonil"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment3,
+       data = metadata, perm=999)
+
+subs <- subset_samples(cycle3_before_stress, treatment3 %in% c("Control", "Glyphosate"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment3,
+       data = metadata, perm=999)
+
+subs <- subset_samples(cycle3_before_stress, treatment3 %in% c("Control", "Tetracycline"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment3,
+       data = metadata, perm=999)
+
+pvalues <- c(0.158,0.002,0.001)
+p.adjust(pvalues,method="fdr")
+
+#cycle 3 after
+
+subs <- subset_samples(compare1, treatment_cycle3 %in% c("control_Chlorothalonil_cycle_3_after_stress", "Chlorothalonil_cycle_3_after_stress"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment_cycle3,
+       data = metadata, perm=999)
+
+subs <- subset_samples(cycle3a, treatment3 %in% c("control_Glyphosate", "Glyphosate"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment3,
+       data = metadata, perm=999)
+
+subs <- subset_samples(cycle3a, treatment3 %in% c("control_Tetracycline", "Tetracycline"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment3,
+       data = metadata, perm=999)
+```
+Tetracycline is highly different to the control in all cycles which is obvious. Chlorothalonil does not show significant differences and Glyphosate is significantly different after cycle 1 and 3.
+
+#### PERMANOVA to test general effects of treatment across cycles
+```{r treatment_effects}
+set.seed(42)
+compare=ps1
+all = subset_samples(compare, cycle == "cycle_one"| cycle == "cycle_two"| cycle == "cycle_three_before_stress"| cycle == "cycle_three_after_stress")
+all <- prune_taxa(taxa_sums(all) > 0, all)
+all <- transform_sample_counts(all, function(OTU) {OTU / sum(OTU)})
+all.1 <- as(sample_data(all), "data.frame")
+
+cycle1 = subset_samples(compare, cycle == "cycle_one")
+cycle1 <- prune_taxa(taxa_sums(cycle1) > 0, cycle1)
+cycle1 <- transform_sample_counts(cycle1, function(OTU) {OTU / sum(OTU)})
+cycle1.2 <- as(sample_data(cycle1), "data.frame")
+
+cycle2 = subset_samples(compare, cycle == "cycle_two")
+cycle2 <- prune_taxa(taxa_sums(cycle2) > 0, cycle2)
+cycle2 <- transform_sample_counts(cycle2, function(OTU) {OTU / sum(OTU)})
+cycle2.2 <- as(sample_data(cycle2), "data.frame")
+
+cycle3_before_stress = subset_samples(compare, cycle == "cycle_three_before_stress")
+cycle3_before_stress <- prune_taxa(taxa_sums(cycle3_before_stress) > 0, cycle3_before_stress)
+cycle3_before_stress <- transform_sample_counts(cycle3_before_stress, function(OTU) {OTU / sum(OTU)})
+cycle3_before_stress.2 <- as(sample_data(cycle3_before_stress), "data.frame")
+
+cycle3_after_stress = subset_samples(compare, cycle == "cycle_three_after_stress")
+cycle3_after_stress <- prune_taxa(taxa_sums(cycle3_after_stress) > 0, cycle3_after_stress)
+cycle3_after_stress <- transform_sample_counts(cycle3_after_stress, function(OTU) {OTU / sum(OTU)})
+cycle3_after_stress.2 <- as(sample_data(cycle3_after_stress), "data.frame")
+
+d = distance(all, "bray")
+adonis(d ~ treatment3, all.1, perm=999)
+
+d1 = distance(cycle1, "bray")
+adonis(d1 ~ treatment3, cycle1.2, perm=999)
+
+d2 = distance(cycle2, "bray")
+adonis(d2 ~ treatment3, cycle2.2, perm=999)
+
+d3 = distance(cycle3_before_stress, "bray")
+adonis(d3 ~ treatment3, cycle3_before_stress.2, perm=999)
+
+d4 = distance(cycle3_after_stress, "bray")
+adonis(d4 ~ treatment3, cycle3_after_stress.2, perm=999)
+```
+Treatment significantly explains differences in microbiome in all cycles (between 43 and 65 % of variation)
+
+```{r cage_effects}
+set.seed(42)
+cycle1_chloro = subset_samples(cycle1, treatment3 == "Chlorothalonil")
+cycle1_chloro.1 <- as(sample_data(cycle1_chloro), "data.frame")
+d = distance(cycle1_chloro, "bray")
+adonis(d ~ cage, cycle1_chloro.1, perm=999)
+
+cycle1_gl = subset_samples(cycle1, treatment3 == "Glyphosate")
+cycle1_gl.1 <- as(sample_data(cycle1_gl), "data.frame")
+d = distance(cycle1_gl, "bray")
+adonis(d ~ cage, cycle1_gl.1, perm=999)
+
+cycle1_co = subset_samples(cycle1, treatment3 == "Control")
+cycle1_co.1 <- as(sample_data(cycle1_co), "data.frame")
+d = distance(cycle1_co, "bray")
+adonis(d ~ cage, cycle1_co.1, perm=999)
+
+
+#cycle2
+cycle2_control = subset_samples(cycle2, treatment3 == "Control")
+cycle2_control.1 <- as(sample_data(cycle2_control), "data.frame")
+d = distance(cycle2_control, "bray")
+adonis(d ~ cage, cycle2_control.1, perm=999)
+
+cycle2_chloro = subset_samples(cycle2, treatment3 == "Chlorothalonil")
+cycle2_chloro.1 <- as(sample_data(cycle2_chloro), "data.frame")
+d = distance(cycle2_chloro, "bray")
+adonis(d ~ cage, cycle2_chloro.1, perm=999)
+
+cycle2_gl = subset_samples(cycle2, treatment3 == "Glyphosate")
+cycle2_gl.1 <- as(sample_data(cycle2_gl), "data.frame")
+d = distance(cycle2_gl, "bray")
+adonis(d ~ cage, cycle2_gl.1, perm=999)
+
+cycle2_tet = subset_samples(cycle2, treatment3 == "Tetracycline")
+cycle2_tet.1 <- as(sample_data(cycle2_tet), "data.frame")
+d = distance(cycle2_tet, "bray")
+adonis(d ~ cage, cycle2_tet.1, perm=999)
+
+#cycle 2 control (p= 0.001) significant cage variation
+
+#cycle 3 before stress
+cycle3_control = subset_samples(cycle3_before_stress, treatment3 == "Control")
+cycle3_control.1 <- as(sample_data(cycle3_control), "data.frame")
+d = distance(cycle3_control, "bray")
+adonis(d ~ cage, cycle3_control.1, perm=999)
+
+cycle3_chloro = subset_samples(cycle3_before_stress, treatment3 == "Chlorothalonil")
+cycle3_chloro.1 <- as(sample_data(cycle3_chloro), "data.frame")
+d = distance(cycle3_chloro, "bray")
+adonis(d ~ cage, cycle3_chloro.1, perm=999)
+
+cycle3_gl = subset_samples(cycle3_before_stress, treatment3 == "Glyphosate")
+cycle3_gl.1 <- as(sample_data(cycle3_gl), "data.frame")
+d = distance(cycle3_gl, "bray")
+adonis(d ~ cage, cycle3_gl.1, perm=999)
+
+cycle3_tet = subset_samples(cycle3_before_stress, treatment3 == "Tetracycline")
+cycle3_tet.1 <- as(sample_data(cycle3_tet), "data.frame")
+d = distance(cycle3_tet, "bray")
+adonis(d ~ cage, cycle3_tet.1, perm=999)
+
+#cycle 3 before stress only in Glyphosate treatment significant cage effects (p=0.006)
+```
+
+### Time effect
+#### Test if treatments differ across cycle 1,2,3
+
+```{r}
+set.seed(42)
+compare = ps1
+compare2 <- prune_taxa(taxa_sums(compare) > 0, compare)
+compare2 <- transform_sample_counts(compare2, function(OTU) {OTU / sum(OTU)})
+
+subs1 <- subset_samples(compare2, treatment_cycle3 == "Control_cycle_1"|treatment_cycle3=="Control_cycle_2"|treatment_cycle3=="control_cycle_3_before_stress")
+metadata <- as(sample_data(subs1), "data.frame")
+adonis(distance(subs1, method="bray") ~ cycle,
+       data = metadata, perm=999)
+
+subs2 <- subset_samples(compare2, treatment_cycle =="Chlorothalonil_cycle_1"|treatment_cycle== "Chlorothalonil_cycle_2"|treatment_cycle3=="Chlorothalonil_cycle_3_before_stress")
+metadata <- as(sample_data(subs2), "data.frame")
+adonis(distance(subs2, method="bray") ~ cycle,
+       data = metadata, perm=999)
+
+subs3 <- subset_samples(compare2, treatment_cycle3 %in% c("Glyphosate_cycle_1", "Glyphosate_cycle_2","Glyphosate_cycle_3_before_stress"))
+metadata <- as(sample_data(subs3), "data.frame")
+adonis(distance(subs3, method="bray") ~ cycle,
+       data = metadata, perm=999)
+
+subs4 <- subset_samples(compare2, treatment_cycle %in% c("Tetracycline_cycle_1", "Tetracycline_cycle_2","Tetracycline_cycle_3_before_stress"))
+metadata <- as(sample_data(subs4), "data.frame")
+adonis(distance(subs4, method="bray") ~ cycle,
+       data = metadata, perm=999)
+```
+
+All treatments differ significantly across cycles.
+
+
+#### compare treatments before and after high stress
+
+```{r}
+set.seed(42)
+subs1 <- subset_samples(compare2, treatment_cycle %in% c("control_Chlorothalonil_cycle_3_before_stress", "control_Chlorothalonil_cycle_3_after_stress"))
+metadata <- as(sample_data(subs1), "data.frame")
+adonis(distance(subs1, method="bray") ~ treatment_cycle,
+       data = metadata, perm=999)
+
+subs1 <- subset_samples(compare2, treatment_cycle %in% c("control_Glyphosate_cycle_3_before_stress", "control_Glyphosate_cycle_3_after_stress"))
+metadata <- as(sample_data(subs1), "data.frame")
+adonis(distance(subs1, method="bray") ~ treatment_cycle,
+       data = metadata, perm=999)
+
+subs1 <- subset_samples(compare2, treatment_cycle %in% c("control_Tetracycline_cycle_3_before_stress", "control_Tetracycline_cycle_3_after_stress"))
+metadata <- as(sample_data(subs1), "data.frame")
+adonis(distance(subs1, method="bray") ~ treatment_cycle,
+       data = metadata, perm=999)
+
+subs1 <- subset_samples(compare2, treatment_cycle %in% c("Chlorothalonil_cycle_3_before_stress", "Chlorothalonil_cycle_3_after_stress"))
+metadata <- as(sample_data(subs1), "data.frame")
+adonis(distance(subs1, method="bray") ~ treatment_cycle,
+       data = metadata, perm=999)
+
+subs1 <- subset_samples(compare2, treatment_cycle %in% c("Glyphosate_cycle_3_before_stress", "Glyphosate_cycle_3_after_stress"))
+metadata <- as(sample_data(subs1), "data.frame")
+adonis(distance(subs1, method="bray") ~ treatment_cycle,
+       data = metadata, perm=999)
+
+subs1 <- subset_samples(compare2, treatment_cycle %in% c("Tetracycline_cycle_3_before_stress", "Tetracycline_cycle_3_after_stress"))
+metadata <- as(sample_data(subs1), "data.frame")
+adonis(distance(subs1, method="bray") ~ treatment_cycle,
+       data = metadata, perm=999)
+```
+No significant difference for any treatment before and after high stress application 
+
+
+
+
+#### compare control to treatment before high stress
+```{r}
+set.seed(42)
+compare2<-ps1
+subs1 <- subset_samples(compare2, treatment_cycle3 %in% c("control_cycle_3_before_stress", "Chlorothalonil_cycle_3_before_stress"))
+metadata <- as(sample_data(subs1), "data.frame")
+adonis(distance(subs1, method="bray") ~ treatment_cycle3,
+       data = metadata, perm=999)
+
+set.seed(42)
+subs1 <- subset_samples(compare2, treatment_cycle3 %in% c("control_cycle_3_before_stress", "Glyphosate_cycle_3_before_stress"))
+metadata <- as(sample_data(subs1), "data.frame")
+adonis(distance(subs1, method="bray") ~ treatment_cycle3,
+       data = metadata, perm=999)
+
+set.seed(42)
+subs1 <- subset_samples(compare2, treatment_cycle3 %in% c("control_cycle_3_before_stress", "Tetracycline_cycle_3_before_stress"))
+metadata <- as(sample_data(subs1), "data.frame")
+adonis(distance(subs1, method="bray") ~ treatment_cycle3,
+       data = metadata, perm=999)
+```
+Before high stress application, Glyphosate and Tetracycline is significantly different to the controls. Chlorothalonil isn't
+
+#### compare control to treatment after high stress
+
+```{r}
+set.seed(42)
+subs1 <- subset_samples(compare1, treatment_cycle %in% c("control_Chlorothalonil_cycle_3_after_stress", "Chlorothalonil_cycle_3_after_stress"))
+metadata <- as(sample_data(subs1), "data.frame")
+adonis(distance(subs1, method="bray") ~ treatment_cycle,
+       data = metadata, perm=999)
+
+subs1 <- subset_samples(compare1, treatment_cycle %in% c("control_Glyphosate_cycle_3_after_stress", "Glyphosate_cycle_3_after_stress"))
+metadata <- as(sample_data(subs1), "data.frame")
+adonis(distance(subs1, method="bray") ~ treatment_cycle,
+       data = metadata, perm=999)
+
+subs1 <- subset_samples(compare1, treatment_cycle %in% c("control_Tetracycline_cycle_3_after_stress", "Tetracycline_cycle_3_after_stress"))
+metadata <- as(sample_data(subs1), "data.frame")
+adonis(distance(subs1, method="bray") ~ treatment_cycle,
+       data = metadata, perm=999)
+```
+After high stress, Chlorothalonil and Glyphosate responded significantly different to the high stress in comparison to the respective control (control also stressed with the toxins!), For Tetracycline no difference (likely because the strong effect of Tetracycline is simply disturbing everything)
+
+
+
+
+
+### test spread of variance of groups
+use betadisper test to test for that
+```{r}
+test<-ps1
+test = subset_samples(test, cycle !="positive_control" & cycle !="hive_bee"&cycle !="start_microbiome")
+test <- prune_taxa(taxa_sums(test) > 0, test)
+test2 <- transform_sample_counts(test, function(OTU) {OTU / sum(OTU)})
+
+cycle1 = subset_samples(test2, cycle == "cycle_one")
+cycle1 <- prune_taxa(taxa_sums(cycle1) > 0, cycle1)
+
+cycle2 = subset_samples(test2, cycle == "cycle_two")
+cycle2 <- prune_taxa(taxa_sums(cycle2) > 0, cycle2)
+
+cycle3_b = subset_samples(test2, cycle == "cycle_three_before_stress")
+cycle3_b <- prune_taxa(taxa_sums(cycle3_b) > 0, cycle3_b)
+
+cycle3_a = subset_samples(test2, cycle == "cycle_three_after_stress")
+cycle3_a <- prune_taxa(taxa_sums(cycle3_a) > 0, cycle3_a)
+
+#testing treatment
+set.seed(53)
+d_cycle1 = distance(cycle1, "bray")
+df_cycle1 = as(sample_data(cycle1), "data.frame")
+groups <- df_cycle1[["treatment3"]]
+groups
+
+beta <- betadisper(d_cycle1, df_cycle1$treatment3)
+permutest(beta)
+
+anova(betadisper(d_cycle1, groups))
+
+plot(betadisper(d_cycle1, groups))
+
+boxplot(betadisper(d_cycle1, groups))
+
+
+test<-ps1
+test = subset_samples(test, cycle !="positive_control" & cycle !="hive_bee"&cycle !="start_microbiome")
+test <- prune_taxa(taxa_sums(test) > 0, test)
+test2 <- transform_sample_counts(test, function(OTU) {OTU / sum(OTU)})
+
+cycle1.1 = subset_samples(cycle1, treatment3 == "Tetracycline" | treatment3 == "control")
+cycle1 <- prune_taxa(taxa_sums(cycle1) > 0, cycle1)
 
 ```
 
+We see that Tetracycline is farer from all the other treatments. Plot it seperately for cycle 1 and 2
+
+Result of betadisper is non-significant, so we can trust ADONIS output (spread within treatments is not higher than)
