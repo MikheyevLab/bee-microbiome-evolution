@@ -1,0 +1,3 @@
+	dead	alive
+Chlorothalonil	36	22
+control_Chlorothalonil	35	7

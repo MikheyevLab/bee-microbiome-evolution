@@ -1,0 +1,3 @@
+	alive	dead
+Glyphosate	22	17
+control_Glyphosate	26	23
