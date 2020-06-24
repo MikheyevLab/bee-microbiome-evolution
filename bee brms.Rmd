@@ -14,6 +14,7 @@ controlDatChlor <- read_tsv("data/control_exp_functional_test_added_Chlorothalon
 controlDatFiltered <- read_tsv("data/control_exp_functional_test_filtered_microbiome_2020.txt") %>% mutate(group = factor(group, levels = c("filtered_control", "filtered_Chlorothalonil", "microbiome_free")))
 ```
 
+
 # Tetracycline
 
 ```{r cache=T}
@@ -72,3 +73,4 @@ p2 <- tibble("+ chlorothalonil" = hypChlorContr$samples[,1], "+ gut filtrate" = 
 plot_grid(p1, p2, nrow = 1, rel_widths = c(3,2), labels = c("A", "B"))
 ggsave("plots/brms.pdf", width = 8, height = 4)
 ```
+
