@@ -1,0 +1,201 @@
+---
+title: "survival curves"
+author: "Vienna"
+date: "5/13/2020"
+output: html_document
+---
+ 
+```{r, echo=FALSE, include=FALSE}
+library(dplyr)
+library(survival)
+library(km.ci)
+library(ggplot2)
+library(magrittr)
+library(ggpubr)
+library(survminer)
+library(gtable)
+library(rlang)
+library(tidyverse)
+library(reshape2)
+library(ggplot2)
+library(fmsb)
+library(Rmisc)
+```
+
+### plot mean of three cages per treatment with standard error
+### Cycle 1
+
+```{r cycle1, fig.width=6, fig.height=3}
+cycle1 <- read.table("R_microbiome_data_files/cycle1_survival.txt", header = TRUE)
+tgc_cycle1 <- summarySE(cycle1, measurevar="percent_survived", groupvars=c("time","treatment"))
+
+neworder <- c("control","Chlorothalonil","Glyphosate", "Tetracycline")
+tgc_cycle2 <- arrange(transform(tgc_cycle1, treatment=factor(treatment,levels=neworder)),treatment)
+
+p<-ggplot(data=tgc_cycle2, aes(x=time, y=percent_survived, group = treatment, colour = treatment)) +
+  geom_errorbar(aes(ymin=percent_survived-se, ymax=percent_survived+se), width=.1)+
+  #geom_errorbar(aes(ymin=percent_survived-sd, ymax=percent_survived+sd), width=.3, size=1.1)+
+  geom_line(size=1.5) +
+  geom_point(size=2, shape=19, fill="white")
+
+p<-p+scale_color_manual(values=c("control"="#55596a", "Chlorothalonil"="#6ebe9f","Glyphosate"="#f3a935", "Tetracycline"="#D45E79"))
+p<-p+coord_cartesian(xlim = c(0, 10))+scale_x_continuous(breaks=c(1,2,3,4,5,6,7,8,9,10))
+p<-p+coord_cartesian(ylim=c(0, 1.1))+scale_y_continuous(breaks=c(0,0.2,0.4,0.6,0.8,1))
+p2<-p+theme(axis.line=element_line(colour="black"), panel.border=element_blank(),panel.background=element_blank())
+p3<-p2+ theme(axis.text.y=element_text(size=15, face="bold"))+
+  theme(axis.title.y=element_text(size=17))+theme(axis.title.x=element_text(size=17))+theme(axis.text.x=element_text(size=15, face="bold"))+
+  #theme(legend.position = "bottomleft")
+  theme(plot.title = element_text(size=15))+ggtitle("Cycle 1 survival")
+p4<- p3+theme(legend.text = element_text(size=11))
+p5 <- p4 + theme(legend.title = element_blank(),
+                 legend.justification=c(1,0), 
+                 legend.position=c(0.25, 0.05),  
+                 legend.background = element_blank(),
+                 legend.key = element_blank()) 
+p_cycle1 <- p5 + theme(plot.title = element_text(hjust = 0.5)) +labs(x = "Time (days)")+labs(y = "Percent survival")
+ggsave("R_microbiome_figures/cycle1_survival.png", height = 3, width = 6)
+``` 
+
+### plot mean of three cages per treatment with standard error
+### Cycle 2
+
+```{r cycle2, fig.width=6, fig.height=3, echo=FALSE, warning=FALSE}
+cycle2 <- read.table("R_microbiome_data_files/cycle2_survival.txt", header = TRUE)
+tgc_cycle1 <- summarySE(cycle2, measurevar="percent_survived", groupvars=c("time","treatment"))
+
+neworder <- c("control","Chlorothalonil","Glyphosate", "Tetracycline")
+tgc_cycle2 <- arrange(transform(tgc_cycle1, treatment=factor(treatment,levels=neworder)),treatment)
+p<-ggplot(data=tgc_cycle2, aes(x=time, y=percent_survived, group = treatment, colour = treatment)) +geom_errorbar(aes(ymin=percent_survived-se, ymax=percent_survived+se), width=.1)+
+  #geom_errorbar(aes(ymin=percent_survived-sd, ymax=percent_survived+sd), width=.3, size=1.1)+
+  geom_line(size=1.5) +
+  geom_point(size=2, shape=19, fill="white")
+p<-p+scale_color_manual(values=c("control"="#55596a", "Chlorothalonil"="#6ebe9f","Glyphosate"="#f3a935", "Tetracycline"="#D45E79"))
+p<-p+coord_cartesian(xlim = c(0, 6))+scale_x_continuous(breaks=c(1,2,3,4,5,6))
+p<-p+coord_cartesian(ylim=c(0, 1.1))+scale_y_continuous(breaks=c(0,0.2,0.4,0.6,0.8,1))
+p2<-p+theme(axis.line=element_line(colour="black"), panel.border=element_blank(),panel.background=element_blank())
+p3<-p2+ theme(axis.text.y=element_text(size=15, face="bold"))+
+  theme(axis.title.y=element_text(size=17))+theme(axis.title.x=element_text(size=17))+theme(axis.text.x=element_text(size=15, face="bold"))+
+  #theme(legend.position = "bottomleft")
+  theme(plot.title = element_text(size=15))+ggtitle("Cycle 2 survival")
+p4<- p3+theme(legend.text = element_text(size=11))
+p5 <- p4 + theme(legend.title = element_blank(),
+                 legend.justification=c(1,0), 
+                 legend.position=c(0.25, 0.05),  
+                 legend.background = element_blank(),
+                 legend.key = element_blank()) 
+p_cycle2 <- p5 + theme(plot.title = element_text(hjust = 0.5)) +labs(x = "Time (days)")+labs(y = "Percent survival")
+ggsave("R_microbiome_figures/cycle2_survival.png", height = 3, width = 6)
+```
+```{r cycle3, fig.width=6, fig.height=3, echo=FALSE, warning=FALSE}
+cycle3 <- read.table("R_microbiome_data_files/cycle3_survival_before_stress.txt", header = TRUE)
+tgc_cycle3 <- summarySE(cycle3, measurevar="percent_survived", groupvars=c("time","treatment2"))
+
+neworder <- c("control","Chlorothalonil","Glyphosate", "Tetracycline")
+tgc_cycle3 <- arrange(transform(tgc_cycle3, treatment2=factor(treatment2,levels=neworder)),treatment2)
+p<-ggplot(data=tgc_cycle3, aes(x=time, y=percent_survived, group = treatment2, colour = treatment2)) +geom_errorbar(aes(ymin=percent_survived-se, ymax=percent_survived+se), width=.1)+
+  #geom_errorbar(aes(ymin=percent_survived-sd, ymax=percent_survived+sd), width=.3, size=1.1)+
+  geom_line(size=1.5) +
+  geom_point(size=2, shape=19, fill="white")
+p<-p+scale_color_manual(values=c("control"="#55596a", "Chlorothalonil"="#6ebe9f","Glyphosate"="#f3a935", "Tetracycline"="#D45E79"))
+p<-p+coord_cartesian(xlim = c(0, 6))+scale_x_continuous(breaks=c(1,2,3,4,5,6))
+p<-p+coord_cartesian(ylim=c(0, 1.1))+scale_y_continuous(breaks=c(0,0.2,0.4,0.6,0.8,1))
+p2<-p+theme(axis.line=element_line(colour="black"), panel.border=element_blank(),panel.background=element_blank())
+p3<-p2+ theme(axis.text.y=element_text(size=15, face="bold"))+
+  theme(axis.title.y=element_text(size=17))+theme(axis.title.x=element_text(size=17))+theme(axis.text.x=element_text(size=15, face="bold"))+
+  #theme(legend.position = "bottomleft")
+  theme(plot.title = element_text(size=15))+ggtitle("Cycle 3 survival")
+p4<- p3+theme(legend.text = element_text(size=11))
+p5 <- p4 + theme(legend.title = element_blank(),
+                 legend.justification=c(1,0), 
+                 legend.position=c(0.25, 0.05),  
+                 legend.background = element_blank(),
+                 legend.key = element_blank()) 
+p_cycle3 <- p5 + theme(plot.title = element_text(hjust = 0.5)) +labs(x = "Time (days)")+labs(y = "Percent survival")
+ggsave("R_microbiome_figures/cycle3_survival.png", height = 3, width = 6)
+```
+```{r arrange_survival_plots}
+
+leg <- get_legend(p_cycle3)
+p_cycle3.1 <- p_cycle3 + theme(legend.position = "none",plot.title = element_blank())
+
+p_cycle2.1 <- p_cycle2 + theme(legend.position = "none",axis.title.x = element_blank(), axis.title.y = element_blank(),plot.title = element_blank())
+
+p_cycle1.1 <- p_cycle1 + theme(legend.position = "none",axis.title.x = element_blank(),plot.title = element_blank())
+
+figure_supp_1 <- "R_microbiome_figures/arrange_survival_plots.png"
+png(figure_supp_1, 13 * plot_res, 7 * plot_res, res = plot_res)
+ggarrange(p_cycle1.1, p_cycle2.1, p_cycle3.1, ncol=2, nrow=2,labels = c("Cycle one", "Cycle two", "Cycle three"),font.label = list(size = 18, color = "dimgray"),vjust = c(1,1,1),hjust = c(-0.75,-0.5,-0.6))
+invisible(dev.off())
+knitr::include_graphics(figure_supp_1, dpi = plot_res)
+```
+
+### fraction survival boxplot
+
+```{r boxplot, fig.width=7, fig.height=4.5}
+library(extrafont)
+#font_import()
+loadfonts(device = "win")
+
+library(ggsignif)
+library(reshape2)
+survive <- read.table("R_microbiome_data_files/cycle3_percent_surv2.txt", header = TRUE)
+df<-melt(survive)
+
+fill <- c("mediumorchid","mediumaquamarine")
+
+p<-ggplot(df, aes(x=as.factor(toxin), y=value, fill=group)) +  
+  stat_boxplot(geom = "errorbar",
+               width=0.4, size=1.8,position = position_dodge(width = 0.8))+geom_boxplot(lwd=1.1, position = position_dodge(width = 0.8))+
+scale_fill_manual(values=fill)
+p <- p + xlab("Toxin") + ylab("Fraction survival") + ggtitle("Survival after high toxin application")
+p <- p + guides(fill=guide_legend(title=element_blank()))
+p <- p + theme(plot.title = element_text(hjust = 0.5, size=17, face="bold", color="grey35",family="Comic Sans MS"))
+p <- p+ theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())    
+p <- p+ theme(panel.border = element_blank())
+p <- p+ theme(panel.background = element_blank())
+p <- p+theme(axis.line = element_line(colour = "black", size=1))
+p <- p+theme(axis.text=element_text(size=14,face="bold",family="Comic Sans MS"))
+p <- p+theme(axis.title=element_text(size=17,face="bold",family="Comic Sans MS"))
+p<- p+theme(legend.text=element_text(size=13,family="Comic Sans MS"))
+p<-p+theme(axis.title.x=element_text(margin=margin(t = 12, r = 0, b = 0, l = 0)))
+p1<-p+theme(axis.title.y=element_text(margin=margin(t = 0, r = 10, b = 0, l = 0)))
+p2<-p1+theme(legend.position = c(0.82, 0.9))
+p2
+```
+
+### plot percent survival AFTER high toxin application (for each toxin applied to co-evolved and control treatment)
+```{r boxplot_survival}
+survive <- read.table("R_microbiome_data_files/cycle3_percent_surv.txt", header = TRUE)
+df<-melt(survive)
+
+#compare_means(value ~ group, data = df, group.by = "toxin", method = "t.test")
+
+  p<-ggplot(df, aes(x=as.factor(toxin), y=value, fill=group)) +  
+  stat_boxplot(geom = "errorbar",
+               width=0.4, size=1.8,position = position_dodge(width = 0.8))+geom_boxplot(lwd=1.1, position = position_dodge(width = 0.8))+
+  scale_fill_manual(values=fill)
+p <- p + xlab("Toxin") + ylab("Fraction survival") + ggtitle("Survival after high toxin application")
+p <- p + guides(fill=guide_legend(title=element_blank()))
+p <- p + theme(plot.title = element_text(hjust = 0.5, size=17, face="bold", color="grey35",family="Comic Sans MS"))
+p <- p+ theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())    
+p <- p+ theme(panel.border = element_blank())
+p <- p+ theme(panel.background = element_blank())
+p <- p+theme(axis.line = element_line(colour = "black", size=1))
+p <- p+theme(axis.text=element_text(size=14,face="bold",family="Comic Sans MS"))
+p <- p+theme(axis.title=element_text(size=17,face="bold",family="Comic Sans MS"))
+p<- p+theme(legend.text=element_text(size=13,family="Comic Sans MS"))
+p<-p+theme(axis.title.x=element_text(margin=margin(t = 12, r = 0, b = 0, l = 0)))
+p1<-p+theme(axis.title.y=element_text(margin=margin(t = 0, r = 10, b = 0, l = 0)))
+#p2<-p1+stat_compare_means()
+p1
+
+
+tetra <- read.table("R_microbiome_data_files/tetra cycle 3 day 5 to 6 survival.txt", header = TRUE)
+fisher.test(tetra, alternative = "two.sided")
+
+chloro <- read.table("R_microbiome_data_files/chloro cycle 3 day 5 to 6 survival.txt", header = TRUE)
+fisher.test(chloro, alternative = "two.sided")
+
+glypho <- read.table("R_microbiome_data_files/glypho cycle 3 day 5 to 7 survival.txt", header = TRUE)
+fisher.test(glypho, alternative = "two.sided")
+```

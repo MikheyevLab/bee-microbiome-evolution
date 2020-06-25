@@ -1,0 +1,3 @@
+	alive	dead
+control	8	18
+added_Chlorothalonil	23	37

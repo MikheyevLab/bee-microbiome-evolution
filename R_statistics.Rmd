@@ -1,0 +1,537 @@
+---
+title: "R_statistics"
+author: "Vienna"
+date: "6/24/2020"
+output: 
+  pdf_document: default
+  keep_md: true
+  html_document: default
+self_contained: no
+thumbnails: no
+keep_md: yes
+---
+
+## Summary
+The experiment aimed to study the response of honey bee microbiome to three chemicals across host generations and to detect potential microbiome mediated effects on host phenotypes. 
+## Methods
+We reared adult bees under controlled lab conditions and inoculated them with a natural bee microbiome (start_pool). Bees were orally stressed with either Tetracycline, Glyphosate, Chloropthalonil or no stressor (control). Three cages per treatment were used. Both, the stress-exposed and control microbiomes were transferred to the next cycle (cage to cage transfer) which was handled as before. The third cycle aims to study effects of the pre-exposed microbiome on phenotypes of naive bee hosts in comparison to control microbiomes. For that we transferred the microbiomes and let them be established in the bee hosts without any stress factor contact. We finally applied high amounts of chemicals to bees with a control microbiome or a pre-exposed microbiome. Bee samples for 16S sequencing has been snap-frozen after cycle 1, cycle 2, cycle 3 BEFORE high stress and cycle 3 AFTER high stress. In addition, the macerated gut pools for transferring microbiome has been saved (start_microbiome as well as pool from each cage to cage transfer). We sequenced the V3-V4 region of the 16S region. Two DNA mock samples from ZymoResearch have been sequenced and named as "positive_control".
+
+### Data and metadata
+
+Overview over all experimental variables:
+
+**Experimental variables find in metadata file**:  
+
+*sample_type* <- microbiome_transfer or single bee
+*treatment* <- treatment used (control or which toxin) and additional information if microbiome transfer (e.g. Control_transfer), single bee (e.g. Control)
+*treatment2* <- only treatment, not indicating sample type
+*cage* <- cage number (three cages per treatment have been used)
+*treatment_cage* <- combined information of treatment and cage number (e.g. Control_2)
+*date* <- date of sampling during experiment
+*cycle* <- experimental cycle (cycle 1, cycle 2, cycle 3 before stress, cycle 3 after stress)
+*treatment_cycle* <- experimental cycle in combination with treatment information
+*treatment_cycle2*<- experimental cycle in combination with treatment  plus sample type information
+
+
+```{r setup, include = FALSE}
+library(RSQLite)
+library(DECIPHER)
+library(DESeq2)
+library(gridExtra)
+library(ggnewscale) ##new_scale()
+library(ggpubr) # ggarrange()
+library(ggthemes)
+library(grid) # rasterGrob()
+library(vegan)
+library(phyloseq)
+library(png)
+library(qgraph) # graph layout
+library(ggsignif)
+library(btools)
+library(RColorBrewer)
+library(tidyverse) # includes: ggplot2, dplyr, tidyr, readr, purr, tibble, stringr, forcats
+library(knitr)
+
+set.seed(42)
+rm(list = ls())
+
+# Plotting options
+plot_res = 300 # DPI of PNG graphs
+col_cembio <- c(rgb(181, 6, 155, 255, max = 255), rgb(64, 118, 253, 255, max = 255))
+col_c12 <- brewer.pal(12, "Set3")
+theme_set(theme_bw())
+
+# Analysis switches
+do_tech_analysis <- TRUE
+```
+
+### Statistics on survival data of bees with pre-exposed microbiomes vs respective controls under high chemical stress for main experiment
+
+```{r survival_data}
+tetra <- read.table("R_microbiome_data_files/tetra cycle 3 day 5 to 6 survival.txt", header = TRUE)
+fisher.test(tetra, alternative = "two.sided")
+
+chloro <- read.table("R_microbiome_data_files/chloro cycle 3 day 5 to 6 survival.txt", header = TRUE)
+fisher.test(chloro, alternative = "two.sided")
+
+glypho <- read.table("R_microbiome_data_files/glypho cycle 3 day 5 to 7 survival.txt", header = TRUE)
+fisher.test(glypho, alternative = "two.sided")
+```
+Glyphosate-exposed microbiomes did not significantly affect the survival of bees under high glyphosate stress, chlorothalonil-exposed microbiomes mediated protection and tetracycline-exposed microbiomes lead to higher mortality
+
+
+### Additional chlorothalonil experiments to figure out protective mechanisms of chlorothalonil-exposed microbiomes on bee survival. Statistics on survival data of bees with added filtered pre-exposed gut extract and added chlorothalonil vs respective controls under high chemical stress.
+```{r survival_data_chloro_controls}
+survive <- read.table("R_microbiome_data_files/Fisher_test_filtered_Chloro_control_exp.txt", header = TRUE)
+fisher.test(survive, alternative = "two.sided")
+
+
+survive2 <- read.table("R_microbiome_data_files/Fisher_test_added_Chloro_control_exp.txt", header = TRUE)
+fisher.test(survive2, alternative = "two.sided")
+``` 
+While filtered pre-exposed gut solution did improve later survival under high chlorothalonil stress, direct addition of chlorothalonil did not.
+
+
+## 16S data
+
+
+```{r load}
+#read in otu table
+otu_table=read.csv("R_microbiome_data_files/Svtab1.csv",sep=",",row.names=1)
+otu_table=as.matrix(otu_table)
+
+#read in taxonomy
+taxonomy=read.csv("R_microbiome_data_files/taxonomy_modify.csv",sep=",",row.names=1)
+taxonomy <- cbind(taxonomy, ASV = paste0("ASV", sprintf("%04d", 1:nrow(taxonomy))))
+taxonomy=as.matrix(taxonomy)
+
+metatable <- read.delim("R_microbiome_data_files/metadata_reorder3.txt") 
+#View(metatable)
+row.names(metatable) <- metatable[[1]]
+metatable<- metatable[,(-1)]
+META <- sample_data(metatable)
+
+phy_tree <- read_tree("R_microbiome_data_files/rooted_tree.nwk")
+
+#import as phyloseq objects
+OTU=otu_table(otu_table,taxa_are_rows=TRUE)
+TAX=tax_table(taxonomy)
+
+#create phyloseq object
+ps1<- phyloseq(OTU, TAX, META, phy_tree)
+
+# change taxonomy header 
+colnames(tax_table(ps1)) <- c(D0 = "Kingdom", D1 = "Phylum", D2 = "Class", 
+                              D3 = "Order", D4 = "Family", D5 = "Genus", D6 = "Species", ASV = "ASV")
+
+#The total number of ASVs in the whole dataset is 
+length(taxa_names(ps1))
+
+#get rid of things we do not want
+ps1 = subset_taxa(ps1, Kingdom =="Bacteria")
+ps1 <- prune_taxa(taxa_sums(ps1) > 0, ps1)
+ps1<-subset_taxa(ps1, (Order!="Chloroplast"))
+ps1<-subset_taxa(ps1, (Family!="Mitochondria"))
+length(taxa_names(ps1))
+#reduces total taxa numbers from 1717 to 1167 (minus 550)
+
+# mean, max and min of sample read counts
+smin <- min(sample_sums(ps1))
+smean <- mean(sample_sums(ps1))
+smax <- max(sample_sums(ps1))
+# printing the results
+cat("The minimum sample read count is:",smin)
+cat("The average sample read count is:",smean)
+cat("The maximum sample read count is:",smax)
+```
+
+
+#### comparing difference between methods
+We sequenced to types of samples: whole bee abdomen and the mix of three macerated guts for cage to cage transfers after each cycle
+Therefore, we need to test if these samples are different due to the differences in the methods prior extracting before deciding if we include all or not.
+Use PERMANOVA on bray-curtis dissimilarities using proportional transformed abundance data
+```{r}
+set.seed(42)
+methods = ps1
+methods <- transform_sample_counts(methods, function(OTU) {OTU / sum(OTU)})
+
+Control = subset_samples(methods, treatment2 == "Control")
+Control <- prune_taxa(taxa_sums(Control) > 0, Control)
+C_metadata <- as(sample_data(Control), "data.frame")
+adonis(distance(Control, method="bray") ~ sample_type,data = C_metadata,perm=999)
+
+Tetra = subset_samples(methods, treatment2 == "Tetracycline")
+Tetra <- prune_taxa(taxa_sums(Tetra) > 0, Tetra)
+T_metadata <- as(sample_data(Tetra), "data.frame")
+adonis(distance(Tetra, method="bray") ~ sample_type,data = T_metadata, perm=999)
+
+Glypho = subset_samples(methods, treatment2 == "Glyphosate")
+Glypho <- prune_taxa(taxa_sums(Glypho) > 0, Glypho)
+G_metadata <- as(sample_data(Glypho), "data.frame")
+adonis(distance(Glypho, method="bray") ~ sample_type,data = G_metadata, perm=999)
+
+Chloro = subset_samples(methods, treatment2 == "Chlorothalonil")
+Chloro <- prune_taxa(taxa_sums(Chloro) > 0, Chloro)
+Ch_metadata <- as(sample_data(Chloro), "data.frame")
+adonis(distance(Chloro, method="bray") ~ sample_type,data = Ch_metadata, perm=999)
+```
+No significant difference between gut pools or whole bees in any treatment.
+
+
+## Alpha diversity statistics
+
+### make statistical comparisons on Observed species numbers - comparing treatments against respective controls in each cycle
+```{r warning=FALSE}
+alpha<- ps1
+alpha1 = subset_samples(alpha, cycle=="cycle_one" | cycle=="cycle_two" | cycle == "cycle_three_before_stress")
+#rarefy to even numbers
+set.seed(1)  
+alpha1_ra <- rarefy_even_depth(alpha1,sample.size=12351, replace=FALSE, rngseed = 1) 
+
+results = estimate_richness(alpha1_ra, measures = 'Observed')
+d = sample_data(alpha1_ra)
+
+# calculate wilcox-test
+Control_1 = results[d[,'treatment_cycle3'] == 'Control_cycle_1',]
+Tetracycline_1 = results[d[,'treatment_cycle3'] == 'Tetracycline_cycle_1',]
+Glyphosate_1 = results[d[,'treatment_cycle3'] == 'Glyphosate_cycle_1',]
+Chlorothalonil_1 = results[d[,'treatment_cycle3'] == 'Chlorothalonil_cycle_1',]
+wilcox.test(Control_1, Chlorothalonil_1)
+wilcox.test(Control_1, Glyphosate_1)
+wilcox.test(Control_1, Tetracycline_1)
+
+pvalues<-c(0.139,0.0184,0.0111)
+p.adjust(pvalues,method="fdr")
+
+#cycle 2
+Control_2 = results[d[,'treatment_cycle3'] == 'Control_cycle_2',]
+Tetracycline_2 = results[d[,'treatment_cycle3'] == 'Tetracycline_cycle_2',]
+Glyphosate_2 = results[d[,'treatment_cycle3'] == 'Glyphosate_cycle_2',]
+Chlorothalonil_2 = results[d[,'treatment_cycle3'] == 'Chlorothalonil_cycle_2',]
+wilcox.test(Control_2, Chlorothalonil_2)
+wilcox.test(Control_2, Glyphosate_2)
+wilcox.test(Control_2, Tetracycline_2)
+
+pvalues<-c(0.222,0.477,3.449e-05)
+p.adjust(pvalues,method="fdr")
+
+#cycle 3
+control_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'control_cycle_3_before_stress',]
+Tetracycline_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'Tetracycline_cycle_3_before_stress',]
+Glyphosate_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'Glyphosate_cycle_3_before_stress',]
+Chlorothalonil_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'Chlorothalonil_cycle_3_before_stress',]
+wilcox.test(control_cycle_3_before_stress, Chlorothalonil_cycle_3_before_stress)
+wilcox.test(control_cycle_3_before_stress, Glyphosate_cycle_3_before_stress)
+wilcox.test(control_cycle_3_before_stress, Tetracycline_cycle_3_before_stress)
+
+pvalues<-c(0.072,0.038,9.364e-06)
+p.adjust(pvalues,method="fdr")
+```
+Numbers of observed species is significantly different under tetracycline to the control in all three cycles, while glyphosate affected the observed species number significantly in cycle 1 and chlorothalonil had no significant effect at any time point.
+
+
+### make statistical comparisons on Shannon alpha diversity index - comparing treatments against respective controls in each cycle
+
+```{r warning=FALSE}
+alpha<- ps1
+alpha1 = subset_samples(alpha, cycle=="cycle_one" | cycle=="cycle_two" | cycle == "cycle_three_before_stress")
+#rarefy to even numbers
+set.seed(1)  
+alpha1_ra <- rarefy_even_depth(alpha1,sample.size=12351, replace=FALSE, rngseed = 1) 
+
+results = estimate_richness(alpha1_ra, measures = 'Shannon')
+d = sample_data(alpha1_ra)
+
+# calculate wilcox-test
+Control_1 = results[d[,'treatment_cycle3'] == 'Control_cycle_1',]
+Tetracycline_1 = results[d[,'treatment_cycle3'] == 'Tetracycline_cycle_1',]
+Glyphosate_1 = results[d[,'treatment_cycle3'] == 'Glyphosate_cycle_1',]
+Chlorothalonil_1 = results[d[,'treatment_cycle3'] == 'Chlorothalonil_cycle_1',]
+wilcox.test(Control_1, Chlorothalonil_1)
+wilcox.test(Control_1, Glyphosate_1)
+wilcox.test(Control_1, Tetracycline_1)
+
+pvalues<-c(0.0596,0.002914,0.004396)
+p.adjust(pvalues,method="fdr")
+
+#cycle 2
+Control_2 = results[d[,'treatment_cycle3'] == 'Control_cycle_2',]
+Tetracycline_2 = results[d[,'treatment_cycle3'] == 'Tetracycline_cycle_2',]
+Glyphosate_2 = results[d[,'treatment_cycle3'] == 'Glyphosate_cycle_2',]
+Chlorothalonil_2 = results[d[,'treatment_cycle3'] == 'Chlorothalonil_cycle_2',]
+wilcox.test(Control_2, Chlorothalonil_2)
+wilcox.test(Control_2, Glyphosate_2)
+wilcox.test(Control_2, Tetracycline_2)
+
+pvalues<-c(0.671,0.9279,7.396e-07)
+p.adjust(pvalues,method="fdr")
+
+#cycle 3
+control_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'control_cycle_3_before_stress',]
+Tetracycline_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'Tetracycline_cycle_3_before_stress',]
+Glyphosate_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'Glyphosate_cycle_3_before_stress',]
+Chlorothalonil_cycle_3_before_stress = results[d[,'treatment_cycle3'] == 'Chlorothalonil_cycle_3_before_stress',]
+wilcox.test(control_cycle_3_before_stress, Chlorothalonil_cycle_3_before_stress)
+wilcox.test(control_cycle_3_before_stress, Glyphosate_cycle_3_before_stress)
+wilcox.test(control_cycle_3_before_stress, Tetracycline_cycle_3_before_stress)
+
+pvalues<-c(0.641,0.000385,2.124e-08)
+p.adjust(pvalues,method="fdr")
+```
+Under tetracycline the Shannon alpha diversity was significantly affected in all three cycles. Glyphosate significantly affected the alpha diversity in cycle 1 and 3 and chlorothalonil did not had any significant effect.
+
+
+## Beta diversity
+
+#### test difference between treatments and respective controls in the three cycles to statistically verify microbial community compositional difference seen in ordination plots 
+```{r}
+set.seed(42)
+compare=ps1
+compare1 <- transform_sample_counts(compare, function(OTU) {OTU / sum(OTU)})
+
+cycle1 = subset_samples(compare1, cycle == "cycle_one")
+cycle1 <- prune_taxa(taxa_sums(cycle1) > 0, cycle1)
+cycle1.1 <- as(sample_data(cycle1), "data.frame")
+
+cycle2 = subset_samples(compare1, cycle == "cycle_two")
+cycle2 <- prune_taxa(taxa_sums(cycle2) > 0, cycle2)
+cycle2.1 <- as(sample_data(cycle2), "data.frame")
+
+cycle3b = subset_samples(compare1, cycle == "cycle_three_before_stress")
+cycle3b <- prune_taxa(taxa_sums(cycle3b) > 0, cycle3b)
+cycle3b.1 <- as(sample_data(cycle3b), "data.frame")
+
+#cycle 1
+
+subs <- subset_samples(cycle1, treatment2 %in% c("Control", "Chlorothalonil"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment2,data = metadata, perm=999)
+
+subs <- subset_samples(cycle1, treatment2 %in% c("Control", "Glyphosate"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment2, data = metadata, perm=999)
+
+
+subs <- subset_samples(cycle1, treatment2 %in% c("Control", "Tetracycline"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment2,data = metadata, perm=999)
+
+pvalues <- c(0.21,0.022,0.004)
+p.adjust(pvalues,method="fdr")
+
+#cycle 2
+subs <- subset_samples(cycle2, treatment2 %in% c("Control", "Chlorothalonil"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment2,data = metadata, perm=999)
+
+subs <- subset_samples(cycle2, treatment2 %in% c("Control", "Glyphosate"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment2,data = metadata, perm=999)
+
+subs <- subset_samples(cycle2, treatment2 %in% c("Control", "Tetracycline"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment2,data = metadata, perm=999)
+
+pvalues <- c(0.5,0.08,0.001)
+p.adjust(pvalues,method="fdr")
+
+
+#cycle 3 before stress
+
+subs <- subset_samples(cycle3b, treatment3 %in% c("Control", "Chlorothalonil"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment3,data = metadata, perm=999)
+
+subs <- subset_samples(cycle3b, treatment3 %in% c("Control", "Glyphosate"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment3,data = metadata, perm=999)
+
+subs <- subset_samples(cycle3b, treatment3 %in% c("Control", "Tetracycline"))
+metadata <- as(sample_data(subs), "data.frame")
+adonis(distance(subs, method="bray") ~ treatment3,data = metadata, perm=999)
+
+pvalues <- c(0.158,0.002,0.001)
+p.adjust(pvalues,method="fdr")
+```
+Community composition was significantly affected under tetracycline in all cycles. Glyphosate affected it in cycle 1 and 3 while chlorothalonil did not show to cause significant changes
+
+
+#### Test general effects of treatment across cycles
+```{r treatment_effects}
+set.seed(42)
+compare=ps1
+compare <- prune_taxa(taxa_sums(compare) > 0, compare)
+compare <- transform_sample_counts(compare, function(OTU) {OTU / sum(OTU)})
+compare.1 <- as(sample_data(compare), "data.frame")
+
+cycle1 = subset_samples(compare, cycle == "cycle_one")
+cycle1 <- prune_taxa(taxa_sums(cycle1) > 0, cycle1)
+cycle1.2 <- as(sample_data(cycle1), "data.frame")
+
+cycle2 = subset_samples(compare, cycle == "cycle_two")
+cycle2 <- prune_taxa(taxa_sums(cycle2) > 0, cycle2)
+cycle2.2 <- as(sample_data(cycle2), "data.frame")
+
+cycle3_before_stress = subset_samples(compare, cycle == "cycle_three_before_stress")
+cycle3_before_stress <- prune_taxa(taxa_sums(cycle3_before_stress) > 0, cycle3_before_stress)
+cycle3_before_stress.2 <- as(sample_data(cycle3_before_stress), "data.frame")
+
+d = distance(compare, "bray")
+adonis(d ~ treatment3, compare.1, perm=999)
+
+d1 = distance(cycle1, "bray")
+adonis(d1 ~ treatment3, cycle1.2, perm=999)
+
+d2 = distance(cycle2, "bray")
+adonis(d2 ~ treatment3, cycle2.2, perm=999)
+
+d3 = distance(cycle3_before_stress, "bray")
+adonis(d3 ~ treatment3, cycle3_before_stress.2, perm=999)
+```
+
+Treatment significantly explains differences in microbiome in all cycles (between 43 and 65 % of variation).
+
+### Test for cage effects
+```{r cage_effects}
+set.seed(42)
+cycle1_chloro = subset_samples(cycle1, treatment3 == "Chlorothalonil")
+cycle1_chloro.1 <- as(sample_data(cycle1_chloro), "data.frame")
+d = distance(cycle1_chloro, "bray")
+adonis(d ~ cage, cycle1_chloro.1, perm=999)
+
+cycle1_gl = subset_samples(cycle1, treatment3 == "Glyphosate")
+cycle1_gl.1 <- as(sample_data(cycle1_gl), "data.frame")
+d = distance(cycle1_gl, "bray")
+adonis(d ~ cage, cycle1_gl.1, perm=999)
+
+cycle1_co = subset_samples(cycle1, treatment3 == "Control")
+cycle1_co.1 <- as(sample_data(cycle1_co), "data.frame")
+d = distance(cycle1_co, "bray")
+adonis(d ~ cage, cycle1_co.1, perm=999)
+
+
+#cycle2
+cycle2_control = subset_samples(cycle2, treatment3 == "Control")
+cycle2_control.1 <- as(sample_data(cycle2_control), "data.frame")
+d = distance(cycle2_control, "bray")
+adonis(d ~ cage, cycle2_control.1, perm=999)
+
+cycle2_chloro = subset_samples(cycle2, treatment3 == "Chlorothalonil")
+cycle2_chloro.1 <- as(sample_data(cycle2_chloro), "data.frame")
+d = distance(cycle2_chloro, "bray")
+adonis(d ~ cage, cycle2_chloro.1, perm=999)
+
+cycle2_gl = subset_samples(cycle2, treatment3 == "Glyphosate")
+cycle2_gl.1 <- as(sample_data(cycle2_gl), "data.frame")
+d = distance(cycle2_gl, "bray")
+adonis(d ~ cage, cycle2_gl.1, perm=999)
+
+cycle2_tet = subset_samples(cycle2, treatment3 == "Tetracycline")
+cycle2_tet.1 <- as(sample_data(cycle2_tet), "data.frame")
+d = distance(cycle2_tet, "bray")
+adonis(d ~ cage, cycle2_tet.1, perm=999)
+
+#cycle 3 before stress
+cycle3_control = subset_samples(cycle3_before_stress, treatment3 == "Control")
+cycle3_control.1 <- as(sample_data(cycle3_control), "data.frame")
+d = distance(cycle3_control, "bray")
+adonis(d ~ cage, cycle3_control.1, perm=999)
+
+cycle3_chloro = subset_samples(cycle3_before_stress, treatment3 == "Chlorothalonil")
+cycle3_chloro.1 <- as(sample_data(cycle3_chloro), "data.frame")
+d = distance(cycle3_chloro, "bray")
+adonis(d ~ cage, cycle3_chloro.1, perm=999)
+
+cycle3_gl = subset_samples(cycle3_before_stress, treatment3 == "Glyphosate")
+cycle3_gl.1 <- as(sample_data(cycle3_gl), "data.frame")
+d = distance(cycle3_gl, "bray")
+adonis(d ~ cage, cycle3_gl.1, perm=999)
+
+cycle3_tet = subset_samples(cycle3_before_stress, treatment3 == "Tetracycline")
+cycle3_tet.1 <- as(sample_data(cycle3_tet), "data.frame")
+d = distance(cycle3_tet, "bray")
+adonis(d ~ cage, cycle3_tet.1, perm=999)
+```
+Testing if the three cages within a treatment show significant variations in microbiome composition (cage effects) reveals that a cage effect is not common in our data. Only in cycle 2 control and cycle 3 glyphosate significant cage variations are seen.
+
+
+### Time effect
+#### Test if microbial composition of treatments differ across the three cycles
+
+```{r}
+set.seed(42)
+compare = ps1
+compare2 <- prune_taxa(taxa_sums(compare) > 0, compare)
+compare2 <- transform_sample_counts(compare2, function(OTU) {OTU / sum(OTU)})
+
+subs1 <- subset_samples(compare2, treatment_cycle3 == "Control_cycle_1"|treatment_cycle3=="Control_cycle_2"|treatment_cycle3=="control_cycle_3_before_stress")
+metadata <- as(sample_data(subs1), "data.frame")
+adonis(distance(subs1, method="bray") ~ cycle,
+       data = metadata, perm=999)
+
+subs2 <- subset_samples(compare2, treatment_cycle =="Chlorothalonil_cycle_1"|treatment_cycle== "Chlorothalonil_cycle_2"|treatment_cycle3=="Chlorothalonil_cycle_3_before_stress")
+metadata <- as(sample_data(subs2), "data.frame")
+adonis(distance(subs2, method="bray") ~ cycle,
+       data = metadata, perm=999)
+
+subs3 <- subset_samples(compare2, treatment_cycle3 %in% c("Glyphosate_cycle_1", "Glyphosate_cycle_2","Glyphosate_cycle_3_before_stress"))
+metadata <- as(sample_data(subs3), "data.frame")
+adonis(distance(subs3, method="bray") ~ cycle,
+       data = metadata, perm=999)
+
+subs4 <- subset_samples(compare2, treatment_cycle %in% c("Tetracycline_cycle_1", "Tetracycline_cycle_2","Tetracycline_cycle_3_before_stress"))
+metadata <- as(sample_data(subs4), "data.frame")
+adonis(distance(subs4, method="bray") ~ cycle,
+       data = metadata, perm=999)
+```
+All treatments differ significantly across cycles
+
+
+### test spread of variance of groups
+use betadisper test to test for that
+```{r betadisp}
+set.seed(53)
+test<-ps1
+test2 <- transform_sample_counts(test, function(OTU) {OTU / sum(OTU)})
+
+cycle1 = subset_samples(test2, cycle == "cycle_one")
+cycle1 <- prune_taxa(taxa_sums(cycle1) > 0, cycle1)
+
+cycle2 = subset_samples(test2, cycle == "cycle_two")
+cycle2 <- prune_taxa(taxa_sums(cycle2) > 0, cycle2)
+
+cycle3_b = subset_samples(test2, cycle == "cycle_three_before_stress")
+cycle3_b <- prune_taxa(taxa_sums(cycle3_b) > 0, cycle3_b)
+
+#testing treatment
+d_cycle1 = distance(cycle1, "bray")
+df_cycle1 = as(sample_data(cycle1), "data.frame")
+df_cycle1$treatment3 <- factor(df_cycle1$treatment3 , levels=c("Control", "Chlorothalonil", "Glyphosate", "Tetracycline"))
+groups <- df_cycle1[["treatment3"]]
+beta <- betadisper(d_cycle1, df_cycle1$treatment3)
+permutest(beta,pairwise = TRUE, permutations = 999)
+anova(betadisper(d_cycle1, groups))
+mod.HSD <- TukeyHSD(beta,conf.level = 0.95)
+mod.HSD
+
+d_cycle2 = distance(cycle2, "bray")
+df_cycle2 = as(sample_data(cycle2), "data.frame")
+df_cycle2$treatment3 <- factor(df_cycle2$treatment3 , levels=c("Control", "Chlorothalonil", "Glyphosate", "Tetracycline"))
+groups <- df_cycle2[["treatment3"]]
+beta <- betadisper(d_cycle2, df_cycle2$treatment3)
+permutest(beta,pairwise = TRUE, permutations = 99)
+anova(betadisper(d_cycle2, groups))
+mod.HSD <- TukeyHSD(beta)
+mod.HSD
+
+d_cycle3_b = distance(cycle3_b, "bray")
+df_cycle3_b = as(sample_data(cycle3_b), "data.frame")
+df_cycle3_b$treatment3 <- factor(df_cycle3_b$treatment3 , levels=c("Control", "Chlorothalonil", "Glyphosate", "Tetracycline"))
+groups <- df_cycle3_b[["treatment3"]]
+beta <- betadisper(d_cycle3_b, df_cycle3_b$treatment3)
+permutest(beta,pairwise = TRUE, permutations = 99)
+anova(betadisper(d_cycle3_b, groups))
+mod.HSD <- TukeyHSD(beta)
+mod.HSD
+```
+
