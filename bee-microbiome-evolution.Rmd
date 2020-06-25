@@ -3,7 +3,7 @@ title: "Bee microbiome gene expression"
 author: "Sasha Mikheyev"
 date: "11/7/2019"
 output:
-  html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -13,8 +13,8 @@ knitr::opts_chunk$set(echo = TRUE, cache = T)
 ```{r}
 library(tidyverse)
 library(sleuth)
-#library(topGO) #annoyingly ovrrides select
 library(readxl)
+library(ggsignif)
 library(kableExtra)
 ```
 
@@ -23,147 +23,20 @@ sample_id <- dir(file.path("data/kallisto"))
 metadata <- read_xlsx("data/RNA_seq_sample_metafile.xlsx") 
 t2g <- read_tsv("data/gene2isoform.txt.gz", col_names = c("gene_id", "target_id"))
 genesAnnotation <- read_tsv("data/genes.txt", col_names = c("beebase", "target_id", "description"), col_types = "ccc") %>% group_by(target_id) %>% mutate(description = gsub(" isoform X\\d+","", description, perl = T), description = description[1]) %>% unique() 
-#go <- read_tsv("data/go.tsv", col_names = c("gene_id", "go"))
-#go <- split(go$go, go$gene_id) # convert to list for topGO
 
-stressGenes <- rbind(read_xlsx("data/doublet.xlsx") %>% mutate(gene_id = as.character(NCBI_ID)) %>% dplyr::select(gene_id, pvalue), 
-  read_xlsx("data/gene stress list for RNA studies.xlsx", range = "B3:B39", col_names = "gene_id", col_types = "text") %>% mutate(pvalue = NA)) %>% group_by(gene_id)
-
-```
-
-# Model incorporating all factors at once
-
-```{r dge}
-wald <- function(trt = "Tetracycline", contrast = "historystress_co_evolved") {
-  dat <-  metadata %>% dplyr::filter(grepl(trt, treatment)) %>%  dplyr::select(sample, stress = time_stress, history) %>% mutate(path = paste0("./data/kallisto/", sample))
-  so <- sleuth_prep(dat, extra_bootstrap_summary = T, target_mapping = t2g, aggregation_column = 'gene_id')
-  plot_pca(so, color_by = 'stress') 
-  so <- sleuth_fit(so, ~ stress + history, 'full')
-  so <- sleuth_wt(so, contrast)
-  results <- sleuth_results(so, test = contrast, pval_aggregate = F) %>% mutate(gene_id = stringr::str_trim(gene_id))
-  return(left_join(results, genesAnnotation, by = c("gene_id" = "target_id"))  %>% dplyr::select(gene_id, target_id, pval, qval, b, description))
-}
-```
-
-Carry out the dge tests for each set of contrasts
-
-```{r}
+stressGenes <- read_xlsx("data/doublet.xlsx") %>% mutate(gene_id = as.character(NCBI_ID)) %>% dplyr::select(gene_id, pvalue)
 treatments <- c("Tetracycline", "Glyphosate", "Chlorothalonil")
-# two contrasts: evolutionary history
-# b is the effect size. 
-#   b>0 is upregulated in coevolved vs. naive
-#   b>0 is upregulated before stress vs. after stress
-contrasts <- c('historystress_co_evolved', 'stressbefore_stress') 
-dge <- list()
-for (trt in treatments) 
-  for (contrast in contrasts)
-    dge[[trt]][[contrast]] <- wald(trt, contrast)
-```
-
-```{r printDGE, results='asis'}
-for (trt in treatments) 
-  for (contrast in contrasts) {
-    print(dge[[trt]][[contrast]] %>% dplyr::filter(qval <= 0.05) %>%
-      kable(caption = paste0(trt, ": ", ifelse(contrast == 'historystress_co_evolved', "effect of co-evolution", "effect of stress"))) %>% 
-      kable_styling())
-  }
-```
-
-```{r saveDGE, echo=F}
-for (trt in treatments) 
-  for (contrast in contrasts) {
-    title <- paste0("data/dge/",trt, " ", ifelse(contrast == 'historystress_co_evolved', "effect of co-evolution", "effect of stress"), ".txt")
-    write.table(file = title, dge[[trt]][[contrast]], row.names = F)
-  }
-```
-
-
-```{r, echo = F}
-# write dge results for later GO term analaysi
-for (trt in treatments) 
-  for (contrast in contrasts) 
-    for (beta in c("up", "down"))
-      {
-      if (contrast == 'historystress_co_evolved') ctr = "coevolved"
-      if (contrast == 'stressbefore_stress') ctr = "pre-stress"
-      if (beta == "up") {
-        write.table(file = paste0("./results/", trt, "_", ctr, "_upregulated.txt"), dge[[trt]][[contrast]] %>% dplyr::filter( qval <= 0.05 & b > 0))
-      }
-    else {
-      write.table(file = paste0("./results/", trt, "_", contrast, "_downregulated.txt"), dge[[trt]][[contrast]] %>% dplyr::filter( qval <= 0.05 & b < 0))
-    }
-  }
-```
-
-## Comparing co-evolved vs control bees before stress
-
-```{r dge_treatment}
-# one contrast: evolutionary history
-# b is the effect size. 
-#   b>0 is upregulated in coevolved vs. naive
-
-waldCoevolved <- function(trt = "Tetracycline") {
-  dat <-  metadata %>% dplyr::filter((treatment == trt | history == "control") & time_stress == "before_stress") %>%  dplyr::select(sample, history) %>% mutate(path = paste0("./data/kallisto/", sample))
-  so <- sleuth_prep(dat, extra_bootstrap_summary = T, target_mapping = t2g, aggregation_column = 'gene_id')
-  so <- sleuth_fit(so, ~ history, 'full')
-  so <- sleuth_wt(so, "historystress_co_evolved")
-  results <- sleuth_results(so, test = "historystress_co_evolved", pval_aggregate = F) %>% mutate(gene_id = stringr::str_trim(gene_id))
-  return(left_join(results, genesAnnotation, by = c("gene_id" = "target_id"))  %>% dplyr::select(gene_id, target_id, pval, qval, b, description))
-}
-```
-
-
-```{r dgeCoevolved, results='asis'}
-dgeCoevolution <- list()
-for (trt in treatments) {
-  dgeCoevolution[[trt]] <- waldCoevolved(trt)
-  print(dgeCoevolution[[trt]] %>% dplyr::filter(qval <= 0.05) %>% kable(caption = paste("Bee genes upregulated as a result of ", trt, "coevolution")) %>% 
-      kable_styling())
-  title <- paste0("data/dge/",trt, " exposure.txt")
-  write.table(file = title, dgeCoevolution[[trt]], row.names = F)
-}
-```
-
-
-## What happens to immune genes in the course of adaptation?
-```{r doublet}
-(immuneGenes <- rbind(
-  stressGenes %>% left_join(dge[["Tetracycline"]][["historystress_co_evolved"]], by =  "gene_id" ) %>% mutate(treatment = "Tetracycline"),
-  stressGenes %>% left_join(dge[["Glyphosate"]][["historystress_co_evolved"]], by =  "gene_id" ) %>% mutate(treatment = "Glyphosate"),
-  stressGenes %>% left_join(dge[["Chlorothalonil"]][["historystress_co_evolved"]], by =  "gene_id" ) %>% mutate(treatment = "Chlorothalonil")
-) )%>% ggplot(aes(b, color=treatment)) + geom_density() + theme_minimal() + geom_vline(xintercept = 0)
-
-immuneGenes %>% ggplot(aes(treatment, b))  + geom_violin() + theme_minimal() + geom_hline(yintercept= 0, color = "red") + stat_summary(fun.y = mean, geom = "point") 
-
-TetVsChlor <- dge[["Tetracycline"]][["historystress_co_evolved"]] %>% dplyr::select(gene_id, target_id, b, qval) %>% inner_join(stressGenes, by =  "gene_id" ) %>%  inner_join(dge[["Chlorothalonil"]][["historystress_co_evolved"]], by =  "target_id" ) 
-with(TetVsChlor, cor.test(b.x, b.y, method = "s"))
-TetVsChlor %>% ggplot(aes(b.x, b.y)) + geom_hex()
 
 ```
 
-```{r go, eval=FALSE, echo=FALSE}
-dgeObject <- dge[["Tetracycline"]][['historystress_co_evolved']]
+### Pre-treatment samples only
 
-allGenes <- unique(t2g$gene_id)[unique(t2g$gene_id) %in% names(go)]
-interestingGenes <- factor(as.integer(allGenes %in% dge[["Tetracycline"]][["stressbefore_stress"]]$gene_id))
-names(interestingGenes) <- allGenes
-GOdata <- new("topGOdata",
-                description="Simple session",ontology="BP",
-                allGenes=interestingGenes,
-                annot=annFUN.gene2GO, gene2GO=go)
-resultFisher <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
-allRes <- GenTable(GOdata, classicFisher = resultFisher, orderBy = "classicKS", topNodes = 10)
-allRes
-```
-
-
-### Verifying with pre-treatment samples only
-
-We're going to remove post-stress samples to see if we have a similar pattern to the whole model.
+We're going to look at post-stress samples to see if we have a similar pattern to the whole model. There were not enough samples for pre-treatment chlorothalonil, so we'll use the other two only as a check.
 
 ```{r}
-wald2 <- function(trt = "Tetracycline") {
-  dat <-  metadata %>% dplyr::filter(grepl(trt, treatment) & time_stress == "before_stress") %>%  dplyr::select(sample, history) %>% mutate(path = paste0("./data/kallisto/", sample))
+waldPre <- function(trt = "Tetracycline") {
+  # b > 0 genes were higher in co-evolved microbes
+  dat <-  metadata %>% dplyr::filter((grepl(trt, treatment) | history == "control") & time_stress == "before_stress") %>%  dplyr::select(sample, history) %>% mutate(path = paste0("./data/kallisto/", sample))
   so <- sleuth_prep(dat, extra_bootstrap_summary = T, target_mapping = t2g, aggregation_column = 'gene_id')
   so <- sleuth_fit(so, ~ history , 'full')
   so <- sleuth_wt(so, 'historystress_co_evolved')
@@ -172,17 +45,100 @@ wald2 <- function(trt = "Tetracycline") {
 }
 ```
 
-```{r}
-dge2 <- list()
-for (trt in c("Tetracycline", "Glyphosate")) 
-    dge2[[trt]] <- wald2(trt)
+```{r cachet=T}
+dgePre <- list()
+for (trt in c("Tetracycline", "Glyphosate", "Chlorothalonil")) 
+    dgePre[[trt]] <- waldPre(trt)
 
-(immuneGenes2 <- rbind(
-  stressGenes %>% left_join(dge2[["Tetracycline"]], by =  "gene_id" ) %>% mutate(treatment = "Tetracycline"),
-  stressGenes %>% left_join(dge2[["Glyphosate"]], by =  "gene_id" ) %>% mutate(treatment = "Glyphosate")
-) )%>% ggplot(aes(b, color=treatment)) + geom_density() + theme_minimal() + geom_vline(xintercept = 0)
+(immuneGenesPre <- rbind(
+  stressGenes %>% left_join(dgePre[["Chlorothalonil"]], by =  "gene_id" ) %>% mutate(treatment = "Chlorothalonil"),
+  stressGenes %>% left_join(dgePre[["Tetracycline"]], by =  "gene_id" ) %>% mutate(treatment = "Tetracycline"),
+  stressGenes %>% left_join(dgePre[["Glyphosate"]], by =  "gene_id" ) %>% mutate(treatment = "Glyphosate")
+) )%>% 
+  ggplot(aes(treatment, b, color = treatment))  + geom_violin() + theme_minimal() + stat_summary(fun = mean, geom = "point") + guides(color= F) + ylab("Relative levels of stress response genes") + xlab("Chemical exposure") + scale_color_manual(values = c("#6EBE9F","#F3A935", "#D45E79")) #+ geom_signif(comparisons = list(c("Chlorothalonil", "Tetracycline"), c("Chlorothalonil", "Glyphosate"),c("Tetracycline", "Glyphosate")), map_signif_level=c("***"=0.001, "**"=0.01, "*"=0.05), step_increase = .1, test = "wilcox.test", color = "black") 
 
-immuneGenes2 %>% ggplot(aes(treatment, b))  + geom_violin() + theme_minimal() + geom_hline(yintercept= 0, color = "red") + stat_summary(fun.y = mean, geom = "point") 
+immuneGenesPre %>% ggplot(aes(treatment, b, color = treatment))  + geom_boxplot(width=0.2, outlier.shape = NA) + theme_minimal() +  stat_summary(fun = mean, geom = "point") + guides(color= F) + ylab("Relative levels of stress response genes") + xlab("Chemical exposure") + scale_color_manual(values = c("#6EBE9F","#F3A935", "#D45E79")) + geom_signif(comparisons = list(c("Chlorothalonil", "Tetracycline"), c("Chlorothalonil", "Glyphosate"),c("Tetracycline", "Glyphosate")), map_signif_level=c("***"=0.001, "**"=0.01, "*"=0.05), step_increase = .06, test = "wilcox.test", color = "black", margin_top = -.1)  + ylim(-5,6)
+
+ggsave("plots/immine2.pdf", width = 4, height = 5, device = cairo_pdf)
+
+wilcox.test(immuneGenesPre %>% filter(treatment == "Chlorothalonil") %>% pull(b))
+wilcox.test(immuneGenesPre %>% filter(treatment == "Tetracycline") %>% pull(b))
+wilcox.test(immuneGenesPre %>% filter(treatment == "Glyphosate") %>% pull(b))
+immuneGenesPre %>% filter(treatment == "Chlorothalonil") %>% pull(b) %>% na.omit() %>% mean()
+immuneGenesPre %>% filter(treatment == "Glyphosate") %>% pull(b) %>% na.omit() %>% mean()
+immuneGenesPre %>% filter(treatment == "Tetracycline") %>% pull(b) %>% na.omit() %>% mean()
 ```
 
-Seems that the overall test partitions the variance pretty well and we get the same pattern with pre-stress treatmentsm, too.
+So, the bees in chemical-exposed treatments have lower stress gene levels than control bees.
+
+```{r}
+waldStress <- function(trt = "Tetracycline") {
+  # b > 0 genes were higher before stress
+  dat <-  metadata %>% dplyr::filter(grepl(trt, treatment)) %>%  dplyr::select(sample, time_stress) %>% mutate(path = paste0("./data/kallisto/", sample))
+  so <- sleuth_prep(dat, extra_bootstrap_summary = T, target_mapping = t2g, aggregation_column = 'gene_id')
+  so <- sleuth_fit(so, ~ time_stress , 'full')
+  so <- sleuth_wt(so, 'time_stressbefore_stress')
+  results <- sleuth_results(so, test = "time_stressbefore_stress", pval_aggregate = F) %>% mutate(gene_id = stringr::str_trim(gene_id))
+  return(left_join(results, genesAnnotation, by = c("gene_id" = "target_id"))  %>% dplyr::select(gene_id, target_id, qval, b, description))
+}
+```
+
+```{r cachet=T}
+dgeStress <- list()
+for (trt in c("Tetracycline", "Glyphosate", "Chlorothalonil")) 
+    dgeStress[[trt]] <- waldStress(trt)
+
+(immuneGenesStress <- rbind(
+  stressGenes %>% left_join(dgeStress[["Chlorothalonil"]], by =  "gene_id" ) %>% mutate(treatment = "Chlorothalonil"),
+  stressGenes %>% left_join(dgeStress[["Tetracycline"]], by =  "gene_id" ) %>% mutate(treatment = "Tetracycline"),
+  stressGenes %>% left_join(dgeStress[["Glyphosate"]], by =  "gene_id" ) %>% mutate(treatment = "Glyphosate")
+) )%>% ggplot(aes(treatment, -b))  + geom_violin() + theme_minimal() + geom_hline(yintercept= 0, color = "red") + stat_summary(fun = mean, geom = "point") 
+
+wilcox.test(immuneGenesStress %>% filter(treatment == "Chlorothalonil") %>% pull(b))
+wilcox.test(immuneGenesStress %>% filter(treatment == "Tetracycline") %>% pull(b))
+wilcox.test(immuneGenesStress %>% filter(treatment == "Glyphosate") %>% pull(b))
+```
+
+### Examining potential hormetic effects
+
+Hormesis often takes place when previous exposure stimulates genes involved in dealing with the response. If hormesis is responsible for higher survival under chlorothalonil, we would expect that genes expressed post-exposure would be upregulated in the same direction as genes in bees receiving exposed microbiomes pre-exposure.
+
+
+```{r}
+chlorStressGenes <- left_join(dgeStress[["Chlorothalonil"]], dgePre[["Chlorothalonil"]], by =  "target_id" ) 
+chlorStressGenes %>% ggplot(aes(-1*b.x, b.y)) + geom_hex() + xlab("Genes higher after stress") + ylab("genes higher with chemically exposed microbiomes")
+with(chlorStressGenes, cor.test(-1*b.x, b.y, method= "s"))
+
+```
+
+## Sanity checks using tpm
+
+```{r, eval=F}
+read_kallisto <- function(filename) {
+  sampleName <- sub("data/kallisto/tsv/(.*).tsv.gz","\\1", filename)
+  return(read_tsv(filename) %>%
+           select(!!sampleName := tpm))
+}
+df <- list.files(path = "data/kallisto/tsv", full.names = TRUE) %>% 
+  lapply(read_kallisto) %>% 
+  bind_cols() 
+df$target_id <- list.files(path = "data/kallisto/tsv", full.names = TRUE)[1] %>% read_tsv() %>% select(target_id) %>% pull()
+
+tpm <- gather(df,key="sample", value = "tpm", -25) %>% left_join(metadata)
+
+# tpm of chlor genes before and after stress
+
+chlor <- tpm %>% filter(treatment == "Chlorothalonil") %>% select(target_id, time_stress, tpm) %>% group_by(target_id, time_stress) %>% summarize(tpm = mean(tpm, na.rm = T)) %>% mutate(diff = tpm - lag(tpm)) %>% na.omit() # compute before - after tpm, so genes that are > 0 were higher before stress
+
+with(left_join(dgeStress[["Chlorothalonil"]], chlor), cor.test(diff, b, method = "s"))
+
+# There is good correlation between tpm and and b estimates. b>0 genes are higher before stress
+
+chlorPre <- tpm %>% dplyr::filter((grepl(trt, "Chlorothalonil") | history == "control") & time_stress == "before_stress") %>% select(target_id, history, tpm) %>% group_by(target_id, history) %>% summarize(tpm = mean(tpm, na.rm = T)) %>% mutate(diff = tpm - lag(tpm)) %>% na.omit()  # coevolved - control, so genes that are > 0 were higher in coevolved
+
+with(left_join(dgePre[["Chlorothalonil"]], chlorPre), cor.test(diff, b, method = "s"))
+
+with(left_join(chlor, chlorPre, by = c("target_id")), cor.test(diff.x, diff.y, method = "s"))
+
+#genes that are higher in coevolved were alse higher before stress
+```

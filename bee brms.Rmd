@@ -8,88 +8,69 @@ library(tidyverse)
 library(brms)
 library(tidybayes)
 library(cowplot)
-dat <- read_tsv("data/functional_test_all_log_reg2.txt") %>% mutate(cage2 = paste(treatment, cage), group = factor(group, levels = c("control", "co-evolved")))
+library(multcomp)
+dat <- read_tsv("data/functional_test_all_log_reg2.txt") %>% mutate(cage2 = paste(treatment, group, cage), group = factor(group, levels = c("control", "co-evolved")))
 controlDatChlor <- read_tsv("data/control_exp_functional_test_added_Chlorothalonil_2020.txt") %>% mutate(group = factor(group, levels = c("control", "added_Chlorothalonil")))
 controlDatFiltered <- read_tsv("data/control_exp_functional_test_filtered_microbiome_2020.txt") %>% mutate(group = factor(group, levels = c("filtered_control", "filtered_Chlorothalonil", "microbiome_free")))
 ```
 
+
 # Tetracycline
 
-```{r}
-table(dat %>% filter(treatment == "Tetracycline") %>% dplyr::select(alive, treatment, group))
-
-summary(glm(alive ~ group, data = filter(dat, treatment == "Tetracycline")))
-```
-
-Ignoring any cage effects, there's clearly greater survival in the control bees. We now incorporate cage effects as random effects.
-
 ```{r cache=T}
-tet <- brm(alive ~ group + (1|cage), data = filter(dat, treatment == "Tetracycline"), family= bernoulli(), control = list(adapt_delta = .9999), iter = 5000, cores = 4)
+priorsCage <- c(prior(student_t(3,0,2.5), class = "b"))
+tet <- brm(alive ~ 0 + cage2 , data = filter(dat, treatment == "Tetracycline"), family= bernoulli(), control = list(adapt_delta = .99, max_treedepth = 10), iter = 5000, cores = 4, prior = priorsCage)
 plot(tet)
 summary(tet)
+(hypTet <- hypothesis(tet, "cage2TetracyclinecoMevolvedcage1 + cage2TetracyclinecoMevolvedcage2 + cage2TetracyclinecoMevolvedcage3 = cage2Tetracyclinecontrolcage1 +cage2Tetracyclinecontrolcage2 + cage2Tetracyclinecontrolcage3"))
 ```
 
 # Chlorothalonil
 
 ```{r cache=T}
-summary(glm(alive ~ group, data = filter(dat, treatment == "Chlorothalonil")))
-chlor <- brm(alive ~ group + (1|cage), data = filter(dat, treatment == "Chlorothalonil"), family= bernoulli(), control = list(adapt_delta = .9999), iter = 5000, cores = 4)
-plot(chlor)
+chlor <- brm(alive ~ 0 + cage2, data = filter(dat, treatment == "Chlorothalonil"), family= bernoulli(), control = list(adapt_delta = .99), iter = 5000, cores = 4, prior = priorsCage)
+plot(chlor, N = 6, ask = F)
 summary(chlor)
+
+(hypChlor <- hypothesis(chlor, "cage2ChlorothalonilcoMevolvedcage1 + cage2ChlorothalonilcoMevolvedcage2 + cage2ChlorothalonilcoMevolvedcage3 = cage2Chlorothalonilcontrolcage1 +cage2Chlorothalonilcontrolcage2 + cage2Chlorothalonilcontrolcage3"))
 ```
 
 # Glyphosate
 
 ```{r cache=T}
-summary(glm(alive ~ group, data = filter(dat, treatment == "Glyphosate")))
-glyph <- brm(alive ~ group + (1|cage), data = filter(dat, treatment == "Glyphosate"), family= bernoulli(), control = list(adapt_delta = .9999), iter = 5000, cores = 4)
+glyph <- brm(alive ~ 0 + cage2, data = filter(dat, treatment == "Glyphosate"), family= bernoulli(), control = list(adapt_delta = .99), iter = 5000, cores = 4, prior = priorsCage)
 plot(glyph)
 summary(glyph)
+(hypGlyph <- hypothesis(glyph, "cage2GlyphosatecoMevolvedcage1 + cage2GlyphosatecoMevolvedcage2 + cage2GlyphosatecoMevolvedcage3 = cage2Glyphosatecontrolcage1 + cage2Glyphosatecontrolcage2 + cage2Glyphosatecontrolcage3"))
 ```
 
 
 # Chlorothionil added control
 
 ```{r cache=T}
-summary(glm(alive ~ group, data = controlDatChlor))
-chlorContr <- brm(alive ~ group + (1|cage), data = controlDatChlor, family= bernoulli(), control = list(adapt_delta = .9999), iter = 5000, cores = 4)
+chlorContr <- brm(alive ~ 0 + cage2, data = controlDatChlor, family= bernoulli(), control = list(adapt_delta = .9999), iter = 5000, cores = 4, prior = priorsCage)
 plot(chlorContr)
 summary(chlorContr)
+(hypChlorContr <- hypothesis(chlorContr, "cage2added_Chlorothalonil_cage1 + cage2added_Chlorothalonil_cage2 + cage2added_Chlorothalonil_cage3 = cage2control_cage1 +cage2control_cage2 + cage2control_cage2"))
 ```
 
 # Filtered microbiome added control
 
 ```{r cache=T}
-summary(glm(alive ~ group, data = controlDatFiltered))
-chlorContrFiltered <- brm(alive ~ group + (1|cage), data = controlDatFiltered, family= bernoulli(), control = list(adapt_delta = .99), iter = 10000, cores = 4)
+chlorContrFiltered <- brm(alive ~ 0 + cage2, data = controlDatFiltered, family= bernoulli(), control = list(adapt_delta = .99), iter = 5000, cores = 4, prior = priorsCage)
 plot(chlorContrFiltered)
 summary(chlorContrFiltered)
+(hypChlorContrFiltered <- hypothesis(chlorContrFiltered, "cage2filtered_Chlorothalonil_cage1 + cage2filtered_Chlorothalonil_cage2 + cage2filtered_Chlorothalonil_cage3 + cage2filtered_Chlorothalonil_cage4  = cage2filtered_control_cage1 + cage2filtered_control_cage2 + cage2filtered_control_cage3 + cage2filtered_control_cage4"))
 ```
 
 # Plot results
 
-## Main experiment
 ```{r}
-get_variables(tet)
+p1 <- tibble("chlorothalonil" = hypChlor$samples[,1], "tetracycline" = hypTet$samples[,1], "glyphosate" = hypGlyph$samples[,1]) %>% gather(key = "contrast", value = "b") %>% group_by(contrast) %>%  ggplot(aes(x = contrast, y=b)) + stat_halfeye(point_interval = mode_hdi, .width = c(.66, .95)) + geom_hline(yintercept = 0, color = "red") + theme_minimal() + theme(axis.title.x = element_blank(), axis.title.y = element_text(vjust = 0.5), plot.margin = unit(c(.5,.5,.5,.5), "cm"), axis.text.x = element_text(angle=45, hjust=1)) + coord_trans(ylim=c(-20,15)) +  ggtitle("Past chemical exposure") + ylab(expression("Bayes factor difference between\nsurvial in treatment and control groups"))
 
-statSum <- rbind(median_qi(tet %>% spread_draws(b_groupcoMevolved)),
-median_qi(chlor %>% spread_draws(b_groupcoMevolved)),
-median_qi(glyph %>% spread_draws(b_groupcoMevolved)))
-statSum$Treatment <- c("Tetracycline", "Chlorothalonil", "Glyphosate")
+p2 <- tibble("+ chlorothalonil" = hypChlorContr$samples[,1], "+ gut filtrate" = hypChlorContrFiltered$samples[,1]) %>% gather(key = "contrast", value = "b") %>% group_by(contrast) %>%  ggplot(aes(x = contrast, y=b)) + stat_halfeye(point_interval = mode_hdi, .width = c(.66, .95)) + geom_hline(yintercept = 0, color = "red")  + theme_minimal() +theme(axis.title = element_blank(), axis.text.y = element_blank(), axis.text.x = element_text(angle=45, hjust=1), plot.margin = unit(c(.5,.5,.5,.5), "cm")) + coord_trans(ylim=c(-20,15)) + ggtitle("Chemical addition")
 
-p1 <- ggplot(statSum, aes(x = Treatment, y = b_groupcoMevolved, ymin = .lower, ymax = .upper)) + geom_errorbar(width = .1) + geom_point() + geom_hline(yintercept = 0, color = "red") + theme_minimal() + ylab("Bee survival") +theme(axis.title.x = element_blank()) + ggtitle("Past chemical exposure") + ylim(c(-7,2.5))
-```
-
-## Chlorothalonil follow-up
-
-```{r}
-get_variables(chlorContr)
-get_variables(chlorContrFiltered)
-contr <- median_qi(chlorContr %>% spread_draws(b_groupadded_Chlorothalonil))
-filtered <- median_qi(chlorContrFiltered %>% spread_draws(b_groupfiltered_Chlorothalonil))
-p2 <- data.frame(treatment = c("+ Chlorothalonil", "+ gut filtrate"), estimate = c(as.numeric(contr[1]), as.numeric(filtered[1])), ymin = c(contr$.lower, filtered$.lower), ymax = c(contr$.upper, filtered$.upper)) %>% 
-  ggplot(aes(x = treatment, y = estimate, ymin = ymin, ymax = ymax)) + geom_errorbar(width = .1) + geom_point() + geom_hline(yintercept = 0, color = "red") + theme_minimal() + theme(axis.title = element_blank()) + ggtitle("Chemical addition") + ylim(c(-7,2.5))
-                   
 plot_grid(p1, p2, nrow = 1, rel_widths = c(3,2), labels = c("A", "B"))
-ggsave("plots/brms.pdf", width = 6, height = 3)
+ggsave("plots/brms.pdf", width = 8, height = 4)
 ```
+
