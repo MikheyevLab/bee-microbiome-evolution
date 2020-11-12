@@ -7,6 +7,14 @@ module load qiime2/2019.1
   --input-format CasavaOneEightSingleLanePerSampleDirFmt \
   --output-path demux-paired-end.qza 
   
+  # trim primer
+qiime cutadapt trim-paired \
+--i-demultiplexed-sequences demux-paired-end.qza \
+--p-cores 16 \
+--p-front-f CCTACGGGNGGCWGCAG \
+--p-front-r GACTACHVGGGTATCTAATCC \
+--o-trimmed-sequences demux-paired-end.qza 
+  
   # Prepare the data for visualization
 	qiime demux summarize \
 	--i-data demux-paired-end.qza \
@@ -23,8 +31,8 @@ qiime dada2 denoise-paired \
 --p-n-threads 16 \
 --p-trunc-len-f 275 \
 --p-trunc-len-r 225 \
---p-trim-left-f 15 \
---p-trim-left-r 7 \
+--p-trim-left-f 2 \
+--p-trim-left-r 0 \
 --p-max-ee 2.0 \
 --p-trunc-q 2 \
 --p-chimera-method 'consensus' \
